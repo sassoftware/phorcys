@@ -1,7 +1,6 @@
 package recovery
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"hash/adler32"
@@ -312,65 +311,17 @@ func CarveWALMessages(walDir, queueUID string) ([][]byte, error) {
 }
 
 // carvePayloadsFromETF wraps a raw ETF data block (without the 0x83 version
-// byte) in a synthetic file buffer and reuses the existing binary scanner to
-// extract AMQP payload binaries.
-func carvePayloadsFromETF(etfData []byte) [][]byte {
+// byte) in a synthetic file buffer and reuses the shared content-tuple
+// scanner (etfscan.go) to extract AMQP payload binaries.
+func carvePayloadsFromETF(etfData []byte) (payloads [][]byte) {
 	// The ETF data from the WAL does NOT include the leading 0x83 version byte;
-	// CarveMessagesFromFile scans for the content-tuple byte pattern regardless,
+	// scanContentTuples looks for the content-tuple byte pattern regardless,
 	// so we can just pass the raw bytes directly.
-	return carveFromBytes(etfData)
-}
-
-// carveFromBytes is a thin wrapper around the existing content-tuple scanner
-// that operates on an in-memory byte slice instead of a file path.
-func carveFromBytes(data []byte) (payloads [][]byte) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[WAL] WARNING: recovered from panic in carveFromBytes: %v", r)
+			log.Printf("[WAL] WARNING: recovered from panic in carvePayloadsFromETF: %v", r)
+			payloads = nil
 		}
 	}()
-
-	idx := 0
-	for idx < len(data) {
-		nearest := -1
-		for _, marker := range contentTupleMarkers {
-			pos := bytes.Index(data[idx:], marker)
-			if pos != -1 && (nearest == -1 || pos < nearest) {
-				nearest = pos
-			}
-		}
-		if nearest == -1 {
-			break
-		}
-		abs := idx + nearest
-		markerLen := matchedMarkerLen(data[abs:])
-		if markerLen == 0 {
-			idx = abs + 1
-			continue
-		}
-		cur := abs + markerLen
-
-		var skipErr error
-		for range 4 {
-			cur, skipErr = skipETFValue(data, cur)
-			if skipErr != nil {
-				break
-			}
-		}
-		if skipErr != nil || cur >= len(data) {
-			idx = abs + 1
-			continue
-		}
-
-		extracted, next, extractErr := extractBinaryList(data, cur)
-		if extractErr == nil {
-			payloads = append(payloads, extracted...)
-		}
-		if next > abs {
-			idx = next
-		} else {
-			idx = abs + 1
-		}
-	}
-	return payloads
+	return scanContentTuples(etfData)
 }

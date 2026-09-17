@@ -333,41 +333,6 @@ func TestParseWALRecords_FixtureUID2_AllHaveETFData(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// carveFromBytes
-// ---------------------------------------------------------------------------
-
-func TestCarveFromBytes_EmptyInput(t *testing.T) {
-	got := carveFromBytes(nil)
-	if len(got) != 0 {
-		t.Errorf("expected no payloads from nil, got %d", len(got))
-	}
-}
-
-func TestCarveFromBytes_NoContentTuple(t *testing.T) {
-	got := carveFromBytes([]byte("hello world this has no ETF content tuple"))
-	if len(got) != 0 {
-		t.Errorf("expected no payloads, got %d", len(got))
-	}
-}
-
-func TestCarveFromBytes_ContentTuple_ExtractsPayload(t *testing.T) {
-	// Build a synthetic ETF content tuple that matches the scanner's pattern.
-	// {content, 60, none, <<properties>>, rabbit_framing_amqp_0_9_1, [<<payload>>]}
-	//
-	// We use the buildContentETF helper to produce valid bytes for the scanner.
-	payload := []byte("unit-test-payload")
-	etfBlock := buildContentETF(payload)
-
-	got := carveFromBytes(etfBlock)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(got))
-	}
-	if string(got[0]) != string(payload) {
-		t.Errorf("payload = %q, want %q", got[0], payload)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // CarveWALMessages
 // ---------------------------------------------------------------------------
 
@@ -540,48 +505,4 @@ func writeTmp(t *testing.T, data []byte) string {
 		t.Fatal(err)
 	}
 	return f.Name()
-}
-
-// buildContentETF constructs a minimal byte sequence that the carveFromBytes
-// scanner will recognise as a 6-arity content tuple containing one payload binary.
-//
-// Encoding: {content, 60, none, <<>>, rabbit_framing_amqp_0_9_1, [<<payload>>]}
-//
-//	SMALL_TUPLE_EXT(6)
-//	 SMALL_ATOM_UTF8_EXT "content"
-//	 SMALL_INTEGER_EXT   60
-//	 SMALL_ATOM_UTF8_EXT "none"
-//	 BINARY_EXT          <<>>
-//	 SMALL_ATOM_UTF8_EXT "rabbit_framing_amqp_0_9_1"
-//	 LIST_EXT(1)
-//	   BINARY_EXT <<payload>>
-//	   NIL_EXT
-func buildContentETF(payload []byte) []byte {
-	var b []byte
-	// {content, …} — arity 6
-	b = append(b, ettSmallTuple, 6)
-	b = append(b, ettSmallAtomUTF8, 7)
-	b = append(b, "content"...)
-	// field 2: classId (small int)
-	b = append(b, ettSmallInt, 60)
-	// field 3: decoded-props atom "none"
-	b = append(b, ettSmallAtomUTF8, 4)
-	b = append(b, "none"...)
-	// field 4: encoded-props binary (empty)
-	b = appendBinary(b, nil)
-	// field 5: framing module atom
-	b = append(b, ettSmallAtomUTF8, byte(len("rabbit_framing_amqp_0_9_1")))
-	b = append(b, "rabbit_framing_amqp_0_9_1"...)
-	// field 6: payload list
-	b = append(b, ettList)
-	b = appendUint32(b, 1) // count
-	b = appendBinary(b, payload)
-	b = append(b, ettNil) // list tail
-	return b
-}
-
-func appendBinary(b, data []byte) []byte {
-	b = append(b, ettBinary)
-	b = appendUint32(b, uint32(len(data)))
-	return append(b, data...)
 }

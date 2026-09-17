@@ -1,72 +1,17 @@
 package testutil
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/DeedleFake/etf"
 	"github.com/sassoftware/argus/internal/broker"
 )
 
-// EncodeETFTerm serialises an ETF value to a byte slice using the same encoding
-// the RabbitMQ broker uses when writing quorum queue meta files and WAL segments.
-func EncodeETFTerm(term any) ([]byte, error) {
-	var ctx etf.Context
-	var buf bytes.Buffer
-	if err := ctx.Encoder(&buf).Encode(term); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// MakeQuorumQueueTerm returns the ETF structure that RabbitMQ stores in a
-// quorum queue 'meta' file for the given vhost and queue name.
-func MakeQuorumQueueTerm(vhost, queueName string) etf.Tuple {
-	return etf.Tuple{
-		etf.Atom("rabbit_quorum_queue"),
-		etf.Tuple{
-			etf.Atom("resource"),
-			[]byte(vhost),
-			etf.Atom("queue"),
-			[]byte(queueName),
-		},
-	}
-}
-
-// MakeBasicMessageTerm returns the ETF structure matching the RabbitMQ 4.x mc_amqpl format:
-//
-//	{'$usr', Meta, {e, Seq, {mc, mc_amqpl, {content, ClassId, none, Props, Module, [Body]}, Annots}}}
-func MakeBasicMessageTerm(body []byte) etf.Tuple {
-	contentTuple := etf.Tuple{
-		etf.Atom("content"),
-		int64(60), // class ID for basic
-		etf.Atom("none"),
-		[]byte{}, // encoded properties binary
-		etf.Atom("rabbit_framing_amqp_0_9_1"),
-		etf.List{body}, // payload list
-	}
-	mcTuple := etf.Tuple{
-		etf.Atom("mc"),
-		etf.Atom("mc_amqpl"),
-		contentTuple,
-		etf.Atom("annotations"),
-	}
-	cmd := etf.Tuple{
-		etf.Atom("e"),
-		int64(1),
-		mcTuple,
-	}
-	return etf.Tuple{
-		etf.Atom("$usr"),
-		etf.Atom("meta"),
-		cmd,
-	}
-}
-
 // TestHealthServer creates a test server that routes the three management API
-// endpoints used by EvaluateQueueHealth.
+// endpoints used by EvaluateQueueHealth. It is shared by the broker and monitor
+// packages so both can exercise the health-check logic against a fake
+// RabbitMQ Management API without duplicating the HTTP test double.
 func TestHealthServer(
 	nodes []broker.RabbitNode,
 	queue *broker.RabbitQueue,
@@ -74,7 +19,7 @@ func TestHealthServer(
 	allQueues []broker.RabbitQueue,
 ) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := EffectivePath(r)
+		path := effectivePath(r)
 		switch {
 		case path == "/api/nodes":
 			json.NewEncoder(w).Encode(nodes)
@@ -95,10 +40,10 @@ func TestHealthServer(
 	}))
 }
 
-// EffectivePath returns the raw (percent-encoded) path when available,
-// falling back to the decoded URL.Path. This lets test handlers match
-// the actual endpoint strings built by fetchSpecificQueue.
-func EffectivePath(r *http.Request) string {
+// effectivePath returns the raw (percent-encoded) path when available,
+// falling back to the decoded URL.Path. This lets the handler above match
+// the actual endpoint strings built by the broker package's HTTP client.
+func effectivePath(r *http.Request) string {
 	if r.URL.RawPath != "" {
 		return r.URL.RawPath
 	}

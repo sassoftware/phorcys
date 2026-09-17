@@ -1,12 +1,12 @@
 package recovery
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/DeedleFake/etf"
-	"github.com/sassoftware/argus/internal/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ func TestExtractRawBinaries_NonBinaryTermsIgnored(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindBasicMessagePayloads_ValidMessage(t *testing.T) {
-	msg := testutil.MakeBasicMessageTerm([]byte("the body"))
+	msg := makeBasicMessageTerm([]byte("the body"))
 	payloads := findBasicMessagePayloads(msg)
 	if len(payloads) != 1 {
 		t.Fatalf("expected 1 payload, got %d", len(payloads))
@@ -90,7 +90,7 @@ func TestFindBasicMessagePayloads_ValidMessage(t *testing.T) {
 }
 
 func TestFindBasicMessagePayloads_NestedInList(t *testing.T) {
-	msg := testutil.MakeBasicMessageTerm([]byte("nested body"))
+	msg := makeBasicMessageTerm([]byte("nested body"))
 	outer := etf.List{etf.Atom("irrelevant"), msg}
 	payloads := findBasicMessagePayloads(outer)
 	if len(payloads) == 0 {
@@ -99,7 +99,7 @@ func TestFindBasicMessagePayloads_NestedInList(t *testing.T) {
 }
 
 func TestFindBasicMessagePayloads_NestedInTuple(t *testing.T) {
-	msg := testutil.MakeBasicMessageTerm([]byte("deep body"))
+	msg := makeBasicMessageTerm([]byte("deep body"))
 	outer := etf.Tuple{etf.Atom("raft_entry"), int64(1), msg}
 	payloads := findBasicMessagePayloads(outer)
 	if len(payloads) == 0 {
@@ -144,7 +144,7 @@ func TestFindBasicMessagePayloads_NonTupleTermIgnored(t *testing.T) {
 // ETF-encoded message wrapped in some surrounding junk bytes.
 func writeSegmentFile(t *testing.T, dir, ext string, msg any) string {
 	t.Helper()
-	encoded, err := testutil.EncodeETFTerm(msg)
+	encoded, err := encodeETFTerm(msg)
 	if err != nil {
 		t.Fatalf("encode ETF: %v", err)
 	}
@@ -161,7 +161,7 @@ func writeSegmentFile(t *testing.T, dir, ext string, msg any) string {
 
 func TestCarveMessagesFromFile_ExtractsPayload(t *testing.T) {
 	dir := t.TempDir()
-	path := writeSegmentFile(t, dir, ".segment", testutil.MakeBasicMessageTerm([]byte("file payload")))
+	path := writeSegmentFile(t, dir, ".segment", makeBasicMessageTerm([]byte("file payload")))
 
 	payloads, err := CarveMessagesFromFile(path)
 	if err != nil {
@@ -204,8 +204,8 @@ func TestCarveMessagesFromFile_AllJunkReturnsEmpty(t *testing.T) {
 
 func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 	dir := t.TempDir()
-	msg1, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("first-message")))
-	msg2, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("second-message")))
+	msg1, _ := encodeETFTerm(makeBasicMessageTerm([]byte("first-message")))
+	msg2, _ := encodeETFTerm(makeBasicMessageTerm([]byte("second-message")))
 
 	f, _ := os.CreateTemp(dir, "*.wal")
 	// Write messages back-to-back; no junk bytes between them so the scanner
@@ -240,7 +240,7 @@ func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 
 func TestCarveMessagesFromDir_ProcessesSegmentAndWal(t *testing.T) {
 	dir := t.TempDir()
-	msg, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("dir msg")))
+	msg, _ := encodeETFTerm(makeBasicMessageTerm([]byte("dir msg")))
 
 	os.WriteFile(filepath.Join(dir, "0000000000000001.segment"), msg, 0644)
 	os.WriteFile(filepath.Join(dir, "00000001.wal"), msg, 0644)
@@ -279,7 +279,7 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 	dir := t.TempDir()
 
 	// A good segment file.
-	good, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("good")))
+	good, _ := encodeETFTerm(makeBasicMessageTerm([]byte("good")))
 	os.WriteFile(filepath.Join(dir, "good.segment"), good, 0644)
 	// A corrupt segment file (no valid ETF).
 	os.WriteFile(filepath.Join(dir, "bad.segment"), []byte{0x01, 0x02}, 0644)
@@ -297,5 +297,111 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected payload 'good' to be recovered despite corrupt sibling")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test-only helpers for building/inspecting synthetic ETF terms.
+//
+// Production carving uses the direct binary scanner in etfscan.go; these two
+// helpers walk decoded etf.Tuple/etf.List trees and only exist to make it easy
+// to assert against terms built by makeBasicMessageTerm and friends.
+// ---------------------------------------------------------------------------
+
+// extractRawBinaries recursively collects all byte slices from a term tree.
+func extractRawBinaries(term any) [][]byte {
+	var binaries [][]byte
+	switch t := term.(type) {
+	case []byte:
+		if len(t) > 0 {
+			cp := make([]byte, len(t))
+			copy(cp, t)
+			binaries = append(binaries, cp)
+		}
+	case etf.Tuple:
+		for _, el := range t {
+			binaries = append(binaries, extractRawBinaries(el)...)
+		}
+	case etf.List:
+		for _, el := range t {
+			binaries = append(binaries, extractRawBinaries(el)...)
+		}
+	}
+	return binaries
+}
+
+// findBasicMessagePayloads walks a decoded term tree looking for the
+// {content, ClassId, ..., [<<payload>>]} tuple shape and returns its payloads.
+func findBasicMessagePayloads(term any) [][]byte {
+	var payloads [][]byte
+	switch t := term.(type) {
+	case etf.Tuple:
+		if len(t) >= 6 {
+			if atom, ok := t[0].(etf.Atom); ok && atom == "content" {
+				if payloadList, ok := t[len(t)-1].(etf.List); ok {
+					for _, item := range payloadList {
+						if b, ok := item.([]byte); ok && len(b) > 0 {
+							cp := make([]byte, len(b))
+							copy(cp, b)
+							payloads = append(payloads, cp)
+						}
+					}
+					return payloads
+				}
+			}
+		}
+		for _, el := range t {
+			payloads = append(payloads, findBasicMessagePayloads(el)...)
+		}
+	case etf.List:
+		for _, el := range t {
+			payloads = append(payloads, findBasicMessagePayloads(el)...)
+		}
+	}
+	return payloads
+}
+
+// ---------------------------------------------------------------------------
+// Test fixture builders for synthetic ETF terms.
+// ---------------------------------------------------------------------------
+
+// encodeETFTerm serialises an ETF value to a byte slice using the same encoding
+// the RabbitMQ broker uses when writing quorum queue meta files and WAL segments.
+func encodeETFTerm(term any) ([]byte, error) {
+	var ctx etf.Context
+	var buf bytes.Buffer
+	if err := ctx.Encoder(&buf).Encode(term); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// makeBasicMessageTerm returns the ETF structure matching the RabbitMQ 4.x mc_amqpl format:
+//
+//	{'$usr', Meta, {e, Seq, {mc, mc_amqpl, {content, ClassId, none, Props, Module, [Body]}, Annots}}}
+func makeBasicMessageTerm(body []byte) etf.Tuple {
+	contentTuple := etf.Tuple{
+		etf.Atom("content"),
+		int64(60), // class ID for basic
+		etf.Atom("none"),
+		[]byte{}, // encoded properties binary
+		etf.Atom("rabbit_framing_amqp_0_9_1"),
+		etf.List{body}, // payload list
+	}
+	mcTuple := etf.Tuple{
+		etf.Atom("mc"),
+		etf.Atom("mc_amqpl"),
+		contentTuple,
+		etf.Atom("annotations"),
+	}
+	cmd := etf.Tuple{
+		etf.Atom("e"),
+		int64(1),
+		mcTuple,
+	}
+	return etf.Tuple{
+		etf.Atom("$usr"),
+		etf.Atom("meta"),
+		cmd,
 	}
 }
