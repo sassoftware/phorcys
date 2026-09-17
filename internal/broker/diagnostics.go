@@ -43,6 +43,8 @@ func NewDiagnosticsManager(apiURL, username, password string) *DiagnosticsManage
 }
 
 // EvaluateQueueHealth executes the full differential check to verify if a queue is dead
+//
+//nolint:gocognit
 func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, queueName string) (QueueHealth, error) {
 	// 1. Fetch the general health state of all cluster nodes
 	nodes, err := dm.fetchNodes(ctx)
@@ -88,7 +90,6 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 	// management API reports for "status". A crashed ra process returns noproc on any
 	// consumer operation while still showing status="running" in Mnesia metadata.
 	if queue.Leader == "" || queue.Leader == "none" {
-
 		// Let's verify if neighbor quorum queues on the same node are running fine.
 		// Fetching the global queue list lets us check isolated health comparisons.
 		allQueues, err := dm.FetchAllQueues(ctx)

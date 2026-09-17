@@ -25,7 +25,7 @@ func BackupWALFiles(walDir, destDir, queueUID string) (int, error) {
 
 	copied := 0
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".wal" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != walFileSuffix {
 			continue
 		}
 		walPath := filepath.Join(walDir, entry.Name())

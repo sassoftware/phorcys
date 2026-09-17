@@ -32,17 +32,18 @@ var contentTupleMarkers [][]byte
 func init() {
 	const arity = 6
 	atomStr := []byte("content")
+	atomLen := byte(len(atomStr)) //nolint:gosec
 	// SMALL_TUPLE_EXT + arity byte
 	prefix := []byte{ettSmallTuple, arity}
 	for _, encoding := range [][]byte{
 		// SMALL_ATOM_UTF8_EXT  (most common in modern OTP)
-		append([]byte{ettSmallAtomUTF8, byte(len(atomStr))}, atomStr...),
+		append([]byte{ettSmallAtomUTF8, atomLen}, atomStr...),
 		// SMALL_ATOM_EXT
-		append([]byte{ettSmallAtom, byte(len(atomStr))}, atomStr...),
+		append([]byte{ettSmallAtom, atomLen}, atomStr...),
 		// ATOM_UTF8_EXT  (2-byte length)
-		append([]byte{ettAtomUTF8, 0, byte(len(atomStr))}, atomStr...),
+		append([]byte{ettAtomUTF8, 0, atomLen}, atomStr...),
 		// ATOM_EXT       (2-byte length)
-		append([]byte{ettAtom, 0, byte(len(atomStr))}, atomStr...),
+		append([]byte{ettAtom, 0, atomLen}, atomStr...),
 	} {
 		contentTupleMarkers = append(contentTupleMarkers, append(prefix, encoding...))
 	}

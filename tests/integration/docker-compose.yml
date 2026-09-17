@@ -14,7 +14,7 @@ services:
     networks:
       - argustest
     volumes:
-       []
+      []
     hostname: rabbitmq
 networks:
   argustest:

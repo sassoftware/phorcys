@@ -5,6 +5,9 @@ package recovery
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,23 +16,19 @@ import (
 
 func TestCheckBounds_WithinRange(t *testing.T) {
 	data := make([]byte, 10)
-	if err := checkBounds(data, 4, 6); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	err := checkBounds(data, 4, 6)
+	assert.NoError(t, err)
 }
 
 func TestCheckBounds_ExactlyAtEnd(t *testing.T) {
 	data := make([]byte, 10)
-	if err := checkBounds(data, 0, 10); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	err := checkBounds(data, 0, 10)
+	assert.NoError(t, err)
 }
 
 func TestCheckBounds_OutOfRange(t *testing.T) {
 	data := make([]byte, 10)
-	if err := checkBounds(data, 5, 6); err == nil {
-		t.Error("expected error when start+n exceeds len(data)")
-	}
+	assert.Error(t, checkBounds(data, 5, 6), "expected error when start+n exceeds len(data)")
 }
 
 // ---------------------------------------------------------------------------
@@ -40,22 +39,16 @@ func TestMatchedMarkerLen_MatchesKnownMarker(t *testing.T) {
 	marker := contentTupleMarkers[0]
 	data := append(append([]byte{}, marker...), 0xAA, 0xBB) // trailing bytes shouldn't matter
 	got := matchedMarkerLen(data)
-	if got != len(marker) {
-		t.Errorf("got %d, want %d", got, len(marker))
-	}
+	assert.Equal(t, len(marker), got)
 }
 
 func TestMatchedMarkerLen_NoMatchReturnsZero(t *testing.T) {
 	data := []byte("this is definitely not an ETF content tuple marker")
-	if got := matchedMarkerLen(data); got != 0 {
-		t.Errorf("got %d, want 0", got)
-	}
+	assert.Equal(t, 0, matchedMarkerLen(data))
 }
 
 func TestMatchedMarkerLen_EmptyInputReturnsZero(t *testing.T) {
-	if got := matchedMarkerLen(nil); got != 0 {
-		t.Errorf("got %d, want 0", got)
-	}
+	assert.Equal(t, 0, matchedMarkerLen(nil))
 }
 
 // ---------------------------------------------------------------------------
@@ -65,169 +58,117 @@ func TestMatchedMarkerLen_EmptyInputReturnsZero(t *testing.T) {
 func TestSkipETFValue_PosOutOfBounds(t *testing.T) {
 	data := []byte{ettSmallInt, 1}
 	_, err := skipETFValue(data, len(data))
-	if err == nil {
-		t.Error("expected error when pos is out of bounds")
-	}
+	assert.Error(t, err, "expected error when pos is out of bounds")
 }
 
 func TestSkipETFValue_SmallInt(t *testing.T) {
 	data := []byte{ettSmallInt, 42}
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != 2 {
-		t.Errorf("next = %d, want 2", next)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 2, next)
 }
 
 func TestSkipETFValue_SmallInt_Truncated(t *testing.T) {
 	data := []byte{ettSmallInt} // missing the value byte
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated SMALL_INTEGER_EXT")
-	}
+	assert.Error(t, err, "expected error for truncated SMALL_INTEGER_EXT")
 }
 
 func TestSkipETFValue_Int(t *testing.T) {
 	data := []byte{ettInt, 0, 0, 0, 5}
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != 5 {
-		t.Errorf("next = %d, want 5", next)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 5, next)
 }
 
 func TestSkipETFValue_Int_Truncated(t *testing.T) {
 	data := []byte{ettInt, 0, 0} // needs 4 bytes, only 2 present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated INTEGER_EXT")
-	}
+	assert.Error(t, err, "expected error for truncated INTEGER_EXT")
 }
 
 func TestSkipETFValue_SmallAtom(t *testing.T) {
 	data := append([]byte{ettSmallAtom, 3}, "abc"...)
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(data), next)
 }
 
 func TestSkipETFValue_SmallAtomUTF8(t *testing.T) {
 	data := append([]byte{ettSmallAtomUTF8, 4}, "none"...)
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(data), next)
 }
 
 func TestSkipETFValue_SmallAtom_MissingLengthByte(t *testing.T) {
 	data := []byte{ettSmallAtom} // tag only, no length byte
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error when length byte is missing")
-	}
+	assert.Error(t, err, "expected error when length byte is missing")
 }
 
 func TestSkipETFValue_SmallAtom_TruncatedBody(t *testing.T) {
 	data := []byte{ettSmallAtom, 5, 'a', 'b'} // claims 5 bytes, only 2 present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated atom body")
-	}
+	assert.Error(t, err, "expected error for truncated atom body")
 }
 
 func TestSkipETFValue_Atom(t *testing.T) {
 	data := append([]byte{ettAtom, 0, 3}, "abc"...)
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(data), next)
 }
 
 func TestSkipETFValue_AtomUTF8(t *testing.T) {
 	data := append([]byte{ettAtomUTF8, 0, 4}, "none"...)
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(data), next)
 }
 
 func TestSkipETFValue_Atom_MissingLengthHeader(t *testing.T) {
 	data := []byte{ettAtom, 0} // only 1 of the 2 length bytes present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error when 2-byte length header is truncated")
-	}
+	assert.Error(t, err, "expected error when 2-byte length header is truncated")
 }
 
 func TestSkipETFValue_Atom_TruncatedBody(t *testing.T) {
 	data := []byte{ettAtom, 0, 5, 'a', 'b'} // claims 5 bytes, only 2 present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated atom body")
-	}
+	assert.Error(t, err, "expected error for truncated atom body")
 }
 
 func TestSkipETFValue_Binary(t *testing.T) {
 	data := append([]byte{ettBinary, 0, 0, 0, 2}, "xy"...)
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, len(data), next)
 }
 
 func TestSkipETFValue_Binary_MissingLengthHeader(t *testing.T) {
 	data := []byte{ettBinary, 0, 0} // needs 4 length bytes, only 2 present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error when 4-byte length header is truncated")
-	}
+	assert.Error(t, err, "expected error when 4-byte length header is truncated")
 }
 
 func TestSkipETFValue_Binary_TruncatedBody(t *testing.T) {
 	data := append([]byte{ettBinary, 0, 0, 0, 5}, "xy"...) // claims 5 bytes, only 2 present
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated binary body")
-	}
+	assert.Error(t, err, "expected error for truncated binary body")
 }
 
 func TestSkipETFValue_Nil(t *testing.T) {
 	data := []byte{ettNil}
 	next, err := skipETFValue(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if next != 1 {
-		t.Errorf("next = %d, want 1", next)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, 1, next)
 }
 
 func TestSkipETFValue_UnsupportedTag(t *testing.T) {
 	data := []byte{0xFF}
 	_, err := skipETFValue(data, 0)
-	if err == nil {
-		t.Error("expected error for unsupported ETF tag")
-	}
+	assert.Error(t, err, "expected error for unsupported ETF tag")
 }
 
 // ---------------------------------------------------------------------------
@@ -237,39 +178,27 @@ func TestSkipETFValue_UnsupportedTag(t *testing.T) {
 func TestExtractBinaryList_PosOutOfBounds(t *testing.T) {
 	data := []byte{ettList}
 	_, _, err := extractBinaryList(data, len(data))
-	if err == nil {
-		t.Error("expected error when pos is out of bounds")
-	}
+	assert.Error(t, err, "expected error when pos is out of bounds")
 }
 
 func TestExtractBinaryList_Nil(t *testing.T) {
 	data := []byte{ettNil}
 	out, next, err := extractBinaryList(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if out != nil {
-		t.Errorf("expected nil binaries for NIL_EXT, got %v", out)
-	}
-	if next != 1 {
-		t.Errorf("next = %d, want 1", next)
-	}
+	require.NoError(t, err)
+	assert.Nil(t, out, "expected nil binaries for NIL_EXT")
+	assert.Equal(t, 1, next)
 }
 
 func TestExtractBinaryList_WrongTagReturnsError(t *testing.T) {
 	data := []byte{ettSmallInt, 5}
 	_, _, err := extractBinaryList(data, 0)
-	if err == nil {
-		t.Error("expected error when tag is neither LIST_EXT nor NIL_EXT")
-	}
+	assert.Error(t, err, "expected error when tag is neither LIST_EXT nor NIL_EXT")
 }
 
 func TestExtractBinaryList_ShortListHeader(t *testing.T) {
 	data := []byte{ettList, 0, 0} // needs 4-byte count, only 2 present
 	_, _, err := extractBinaryList(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated list count header")
-	}
+	assert.Error(t, err, "expected error for truncated list count header")
 }
 
 func TestExtractBinaryList_SingleBinaryWithNilTail(t *testing.T) {
@@ -280,15 +209,9 @@ func TestExtractBinaryList_SingleBinaryWithNilTail(t *testing.T) {
 	data = append(data, ettNil)
 
 	out, next, err := extractBinaryList(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 1 || string(out[0]) != "payload" {
-		t.Errorf("out = %v, want [\"payload\"]", out)
-	}
-	if next != len(data) {
-		t.Errorf("next = %d, want %d (list tail consumed)", next, len(data))
-	}
+	require.NoError(t, err)
+	assert.True(t, len(out) == 1 && string(out[0]) == "payload", "out = %v, want [\"payload\"]", out)
+	assert.Equal(t, len(data), next, "list tail should be consumed")
 }
 
 func TestExtractBinaryList_MultipleBinaries(t *testing.T) {
@@ -300,12 +223,8 @@ func TestExtractBinaryList_MultipleBinaries(t *testing.T) {
 	data = append(data, ettNil)
 
 	out, _, err := extractBinaryList(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 2 || string(out[0]) != "first" || string(out[1]) != "second" {
-		t.Errorf("out = %v, want [\"first\" \"second\"]", out)
-	}
+	require.NoError(t, err)
+	assert.True(t, len(out) == 2 && string(out[0]) == "first" && string(out[1]) == "second", "out = %v, want [\"first\" \"second\"]", out)
 }
 
 func TestExtractBinaryList_NonBinaryElementSkipped(t *testing.T) {
@@ -317,12 +236,8 @@ func TestExtractBinaryList_NonBinaryElementSkipped(t *testing.T) {
 	data = append(data, ettNil)
 
 	out, _, err := extractBinaryList(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 1 || string(out[0]) != "kept" {
-		t.Errorf("out = %v, want [\"kept\"] (non-binary element skipped)", out)
-	}
+	require.NoError(t, err)
+	assert.True(t, len(out) == 1 && string(out[0]) == "kept", "out = %v, want [\"kept\"] (non-binary element skipped)", out)
 }
 
 func TestExtractBinaryList_ZeroLengthBinarySkippedWithoutError(t *testing.T) {
@@ -333,12 +248,8 @@ func TestExtractBinaryList_ZeroLengthBinarySkippedWithoutError(t *testing.T) {
 	data = append(data, ettNil)
 
 	out, _, err := extractBinaryList(data, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(out) != 0 {
-		t.Errorf("expected zero-length binary to be skipped, got %v", out)
-	}
+	require.NoError(t, err)
+	assert.Empty(t, out, "expected zero-length binary to be skipped")
 }
 
 func TestExtractBinaryList_TruncatedListReturnsError(t *testing.T) {
@@ -349,9 +260,7 @@ func TestExtractBinaryList_TruncatedListReturnsError(t *testing.T) {
 	// second element missing entirely
 
 	_, _, err := extractBinaryList(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated list body")
-	}
+	assert.Error(t, err, "expected error for truncated list body")
 }
 
 func TestExtractBinaryList_ShortBinaryHeaderInList(t *testing.T) {
@@ -361,9 +270,7 @@ func TestExtractBinaryList_ShortBinaryHeaderInList(t *testing.T) {
 	data = append(data, ettBinary, 0, 0) // truncated 4-byte length header
 
 	_, _, err := extractBinaryList(data, 0)
-	if err == nil {
-		t.Error("expected error for truncated binary length header inside list")
-	}
+	assert.Error(t, err, "expected error for truncated binary length header inside list")
 }
 
 // ---------------------------------------------------------------------------
@@ -372,16 +279,12 @@ func TestExtractBinaryList_ShortBinaryHeaderInList(t *testing.T) {
 
 func TestScanContentTuples_EmptyInput(t *testing.T) {
 	got := scanContentTuples(nil)
-	if len(got) != 0 {
-		t.Errorf("expected no payloads from nil, got %d", len(got))
-	}
+	assert.Empty(t, got)
 }
 
 func TestScanContentTuples_NoContentTuple(t *testing.T) {
 	got := scanContentTuples([]byte("hello world this has no ETF content tuple"))
-	if len(got) != 0 {
-		t.Errorf("expected no payloads, got %d", len(got))
-	}
+	assert.Empty(t, got)
 }
 
 func TestScanContentTuples_ContentTuple_ExtractsPayload(t *testing.T) {
@@ -393,12 +296,8 @@ func TestScanContentTuples_ContentTuple_ExtractsPayload(t *testing.T) {
 	etfBlock := buildContentETF(payload)
 
 	got := scanContentTuples(etfBlock)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(got))
-	}
-	if string(got[0]) != string(payload) {
-		t.Errorf("payload = %q, want %q", got[0], payload)
-	}
+	require.Len(t, got, 1)
+	assert.Equal(t, payload, got[0])
 }
 
 func TestScanContentTuples_MultipleTuples_ExtractsAllInOrder(t *testing.T) {
@@ -408,28 +307,21 @@ func TestScanContentTuples_MultipleTuples_ExtractsAllInOrder(t *testing.T) {
 	data = append(data, buildContentETF([]byte("third"))...)
 
 	got := scanContentTuples(data)
-	if len(got) != 3 {
-		t.Fatalf("expected 3 payloads, got %d", len(got))
-	}
+	require.Len(t, got, 3)
 	want := []string{"first", "second", "third"}
 	for i, w := range want {
-		if string(got[i]) != w {
-			t.Errorf("payload[%d] = %q, want %q", i, got[i], w)
-		}
+		assert.Equalf(t, w, string(got[i]), "payload[%d] = %q, want %q", i, got[i], w)
 	}
 }
 
 func TestScanContentTuples_LeadingGarbageIsSkipped(t *testing.T) {
+	payload := buildContentETF([]byte("real-payload"))
 	junk := []byte("random noise that precedes the real message-----")
-	data := append(junk, buildContentETF([]byte("real-payload"))...)
+	payload = append(junk, payload...)
 
-	got := scanContentTuples(data)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(got))
-	}
-	if string(got[0]) != "real-payload" {
-		t.Errorf("payload = %q, want %q", got[0], "real-payload")
-	}
+	got := scanContentTuples(payload)
+	require.Len(t, got, 1)
+	assert.Equal(t, "real-payload", string(got[0]))
 }
 
 func TestScanContentTuples_TruncatedTupleAfterMarkerIsSkipped(t *testing.T) {
@@ -437,9 +329,7 @@ func TestScanContentTuples_TruncatedTupleAfterMarkerIsSkipped(t *testing.T) {
 	// scanner; it should simply find nothing and move on.
 	marker := contentTupleMarkers[0]
 	got := scanContentTuples(marker) // marker only, no field data follows
-	if len(got) != 0 {
-		t.Errorf("expected no payloads from a truncated tuple, got %d", len(got))
-	}
+	assert.Empty(t, got)
 }
 
 func TestScanContentTuples_RecoversAfterTruncatedTuple(t *testing.T) {
@@ -455,9 +345,7 @@ func TestScanContentTuples_RecoversAfterTruncatedTuple(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Errorf("expected to recover payload after truncated leading tuple, got %v", got)
-	}
+	assert.True(t, found, "expected to recover payload after truncated leading tuple, got %v", got)
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +392,6 @@ func buildContentETF(payload []byte) []byte {
 
 func appendBinary(b, data []byte) []byte {
 	b = append(b, ettBinary)
-	b = appendUint32(b, uint32(len(data)))
+	b = appendUint32(b, uint32(len(data))) //nolint:gosec
 	return append(b, data...)
 }

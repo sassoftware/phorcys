@@ -45,11 +45,12 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	walDir := cfg.QuorumBasePath
 	walBackupDir := filepath.Join(backupDir, "wal")
 	walsBacked, err := BackupWALFiles(walDir, walBackupDir, queueUID)
-	if err != nil {
+	switch {
+	case err != nil:
 		log.Printf("[Recovery] WARNING: WAL backup failed (non-fatal): %v", err)
-	} else if walsBacked > 0 {
+	case walsBacked > 0:
 		log.Printf("[Recovery] Backed up %d WAL file(s) containing records for UID %s", walsBacked, queueUID)
-	} else {
+	default:
 		log.Printf("[Recovery] No WAL records found for UID %s — skipping WAL backup", queueUID)
 	}
 
@@ -77,18 +78,19 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	log.Printf("[Recovery] Extracted %d payload(s) from WAL backup", len(walPayloads))
 
 	// Segments are written before WAL entries are flushed, so publish segments first.
-	payloads := append(segPayloads, walPayloads...)
-	if len(payloads) == 0 {
+	segCount := len(segPayloads)
+	segPayloads = append(segPayloads, walPayloads...)
+	if len(segPayloads) == 0 {
 		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", queueName)
 		return nil
 	}
 
 	// Phase 7: Republish to default exchange; routing key = queue name.
-	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, payloads); err != nil {
+	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, segPayloads); err != nil {
 		return fmt.Errorf("republish phase: %w", err)
 	}
 	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
-		len(payloads), queueName, len(segPayloads), len(walPayloads))
+		len(segPayloads), queueName, segCount, len(walPayloads))
 
 	return nil
 }

@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testWALPath is the shared WAL fixture used by all integration tests.
@@ -37,9 +40,7 @@ func TestParseWALRecords_BadMagic(t *testing.T) {
 	path := writeTmp(t, data)
 
 	_, err := ParseWALRecords(path, "")
-	if err == nil || !strings.Contains(err.Error(), "invalid WAL magic") {
-		t.Fatalf("expected 'invalid WAL magic' error, got %v", err)
-	}
+	require.ErrorContains(t, err, "invalid WAL magic")
 }
 
 func TestParseWALRecords_BadVersion(t *testing.T) {
@@ -48,28 +49,20 @@ func TestParseWALRecords_BadVersion(t *testing.T) {
 	path := writeTmp(t, data)
 
 	_, err := ParseWALRecords(path, "")
-	if err == nil || !strings.Contains(err.Error(), "unsupported WAL version") {
-		t.Fatalf("expected 'unsupported WAL version' error, got %v", err)
-	}
+	require.ErrorContains(t, err, "unsupported WAL version")
 }
 
 func TestParseWALRecords_TooShort(t *testing.T) {
 	_, err := ParseWALRecords(writeTmp(t, []byte("RAWA")), "")
-	if err == nil || !strings.Contains(err.Error(), "too short") {
-		t.Fatalf("expected 'too short' error, got %v", err)
-	}
+	require.ErrorContains(t, err, "too short")
 }
 
 func TestParseWALRecords_EmptyWAL(t *testing.T) {
 	// A valid header with no records.
 	path := writeTmp(t, buildWAL(nil, "", false))
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 0 {
-		t.Fatalf("expected 0 records, got %d", len(recs))
-	}
+	require.NoError(t, err)
+	require.Empty(t, recs)
 }
 
 // ---------------------------------------------------------------------------
@@ -85,19 +78,11 @@ func TestParseWALRecords_SingleUID_AllRecords(t *testing.T) {
 	path := writeTmp(t, buildWAL(entries, "", false))
 
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 3 {
-		t.Fatalf("expected 3 records, got %d", len(recs))
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 3)
 	for i, r := range recs {
-		if r.UID != "myqueue" {
-			t.Errorf("[%d] UID = %q, want %q", i, r.UID, "myqueue")
-		}
-		if r.Idx != uint64(i+1) {
-			t.Errorf("[%d] Idx = %d, want %d", i, r.Idx, i+1)
-		}
+		assert.Equalf(t, "myqueue", r.UID, "[%d] UID = %q, want %q", i, r.UID, "myqueue")
+		assert.Equalf(t, uint64(i+1), r.Idx, "[%d] Idx = %d, want %d", i, r.Idx, i+1)
 	}
 }
 
@@ -111,16 +96,10 @@ func TestParseWALRecords_FilterByUID(t *testing.T) {
 	path := writeTmp(t, buildWAL(entries, "", false))
 
 	recs, err := ParseWALRecords(path, "queue-A")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 2 {
-		t.Fatalf("expected 2 records for queue-A, got %d", len(recs))
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 2)
 	for _, r := range recs {
-		if r.UID != "queue-A" {
-			t.Errorf("got record for wrong UID: %q", r.UID)
-		}
+		assert.Equal(t, "queue-A", r.UID, "got record for wrong UID")
 	}
 }
 
@@ -133,12 +112,8 @@ func TestParseWALRecords_MultiUID_TotalCount(t *testing.T) {
 	path := writeTmp(t, buildWAL(entries, "", false))
 
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 3 {
-		t.Fatalf("expected 3 total records, got %d", len(recs))
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 3)
 }
 
 func TestParseWALRecords_ETFDataRoundtrip(t *testing.T) {
@@ -149,15 +124,9 @@ func TestParseWALRecords_ETFDataRoundtrip(t *testing.T) {
 	path := writeTmp(t, buildWAL(entries, "", false))
 
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(recs))
-	}
-	if string(recs[0].ETFData) != string(payload) {
-		t.Errorf("ETFData = %q, want %q", recs[0].ETFData, payload)
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, payload, recs[0].ETFData)
 }
 
 func TestParseWALRecords_TruncateFlag(t *testing.T) {
@@ -168,18 +137,10 @@ func TestParseWALRecords_TruncateFlag(t *testing.T) {
 	path := writeTmp(t, buildWAL(entries, "", false))
 
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 2 {
-		t.Fatalf("expected 2 records, got %d", len(recs))
-	}
-	if recs[0].Truncate {
-		t.Error("record[0]: Truncate should be false")
-	}
-	if !recs[1].Truncate {
-		t.Error("record[1]: Truncate should be true")
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 2)
+	assert.False(t, recs[0].Truncate, "record[0]: Truncate should be false")
+	assert.True(t, recs[1].Truncate, "record[1]: Truncate should be true")
 }
 
 func TestParseWALRecords_EOFSentinelStopsParser(t *testing.T) {
@@ -200,12 +161,8 @@ func TestParseWALRecords_EOFSentinelStopsParser(t *testing.T) {
 
 	path := writeTmp(t, base)
 	recs, err := ParseWALRecords(path, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != 1 {
-		t.Fatalf("expected 1 record (sentinel stops parser), got %d", len(recs))
-	}
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -214,45 +171,31 @@ func TestParseWALRecords_EOFSentinelStopsParser(t *testing.T) {
 
 func TestParseWALMessagesForQueue_KnownUID2_PayloadCount(t *testing.T) {
 	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	// The fixture WAL contains 20 000 "payload-data-packet-N" messages for UID2.
-	if len(payloads) == 0 {
-		t.Fatal("expected payloads for fixture UID2, got none")
-	}
+	require.NotEmpty(t, payloads, "expected payloads for fixture UID2, got none")
 	t.Logf("extracted %d payloads for %q", len(payloads), fixtureUID2)
 }
 
 func TestParseWALMessagesForQueue_KnownUID2_PayloadContent(t *testing.T) {
 	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for i, p := range payloads {
-		if !strings.HasPrefix(string(p), fixturePayloadPfx) {
-			t.Errorf("payload[%d] = %q, expected prefix %q", i, string(p), fixturePayloadPfx)
-		}
+		assert.Truef(t, strings.HasPrefix(string(p), fixturePayloadPfx), "payload[%d] = %q, expected prefix %q", i, string(p), fixturePayloadPfx)
 	}
 }
 
 func TestParseWALMessagesForQueue_UnknownUID_ReturnsEmpty(t *testing.T) {
 	payloads, err := ParseWALMessagesForQueue(testWALPath, "nonexistent-uid")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(payloads) != 0 {
-		t.Fatalf("expected 0 payloads for unknown UID, got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	require.Empty(t, payloads)
 }
 
 func TestParseWALMessagesForQueue_UID1_NoPayloads(t *testing.T) {
 	// UID1 also contains enqueue records in this fixture; verify the carver
 	// runs without error and log the count.
 	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	t.Logf("UID1 (%q) yielded %d payloads", fixtureUID1, len(payloads))
 }
 
@@ -262,62 +205,39 @@ func TestParseWALMessagesForQueue_UID1_NoPayloads(t *testing.T) {
 
 func TestParseWALRecords_FixtureUID1_Count(t *testing.T) {
 	recs, err := ParseWALRecords(testWALPath, fixtureUID1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != fixtureUID1Count {
-		t.Errorf("expected %d records for %q, got %d", fixtureUID1Count, fixtureUID1, len(recs))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, fixtureUID1Count, len(recs))
 }
 
 func TestParseWALRecords_FixtureUID2_Count(t *testing.T) {
 	recs, err := ParseWALRecords(testWALPath, fixtureUID2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) != fixtureUID2Count {
-		t.Errorf("expected %d records for %q, got %d", fixtureUID2Count, fixtureUID2, len(recs))
-	}
+	require.NoError(t, err)
+	assert.Equal(t, fixtureUID2Count, len(recs))
 }
 
 func TestParseWALRecords_FixtureAllUIDs_TotalCount(t *testing.T) {
 	recs, err := ParseWALRecords(testWALPath, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	want := fixtureUID1Count + fixtureUID2Count
-	if len(recs) != want {
-		t.Errorf("expected %d total records, got %d", want, len(recs))
-	}
+	assert.Equal(t, want, len(recs))
 }
 
 func TestParseWALRecords_FixtureFirstRecord(t *testing.T) {
 	// The very first record in the file belongs to UID1 and has a known index.
 	recs, err := ParseWALRecords(testWALPath, fixtureUID1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(recs) == 0 {
-		t.Fatal("no records for fixture UID1")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, recs, "no records for fixture UID1")
 	first := recs[0]
-	if first.Idx != fixtureFirstIdx {
-		t.Errorf("first record Idx = %d, want %d", first.Idx, fixtureFirstIdx)
-	}
-	if first.Term != fixtureFirstTerm {
-		t.Errorf("first record Term = %d, want %d", first.Term, fixtureFirstTerm)
-	}
+	assert.Equal(t, uint64(fixtureFirstIdx), first.Idx)
+	assert.Equal(t, uint64(fixtureFirstTerm), first.Term)
 }
 
 func TestParseWALRecords_FixtureUID2_IndicesAscending(t *testing.T) {
 	recs, err := ParseWALRecords(testWALPath, fixtureUID2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for i := 1; i < len(recs); i++ {
-		if recs[i].Idx <= recs[i-1].Idx {
-			t.Errorf("indices not ascending at position %d: %d <= %d",
-				i, recs[i].Idx, recs[i-1].Idx)
+		if !assert.Greaterf(t, recs[i].Idx, recs[i-1].Idx, "indices not ascending at position %d: %d <= %d",
+			i, recs[i].Idx, recs[i-1].Idx) {
 			break
 		}
 	}
@@ -325,13 +245,9 @@ func TestParseWALRecords_FixtureUID2_IndicesAscending(t *testing.T) {
 
 func TestParseWALRecords_FixtureUID2_AllHaveETFData(t *testing.T) {
 	recs, err := ParseWALRecords(testWALPath, fixtureUID2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for i, r := range recs {
-		if len(r.ETFData) == 0 {
-			t.Errorf("record[%d] (idx=%d) has empty ETFData", i, r.Idx)
-		}
+		assert.NotEmptyf(t, r.ETFData, "record[%d] (idx=%d) has empty ETFData", i, r.Idx)
 	}
 }
 
@@ -341,67 +257,44 @@ func TestParseWALRecords_FixtureUID2_AllHaveETFData(t *testing.T) {
 
 func TestCarveWALMessages_AbsentDir_ReturnsNilNoError(t *testing.T) {
 	payloads, err := CarveWALMessages("/no/such/wal/backup", "any-uid")
-	if err != nil {
-		t.Fatalf("expected no error for absent dir, got: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads, got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, payloads)
 }
 
 func TestCarveWALMessages_EmptyDir_ReturnsEmpty(t *testing.T) {
 	payloads, err := CarveWALMessages(t.TempDir(), "any-uid")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads from empty dir, got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, payloads)
 }
 
 func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 	// Set up a WAL backup dir containing the fixture WAL.
 	walBackupDir := t.TempDir()
-	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
 	payloads, err := CarveWALMessages(walBackupDir, fixtureUID2)
-	if err != nil {
-		t.Fatalf("CarveWALMessages: %v", err)
-	}
-	if len(payloads) == 0 {
-		t.Fatal("expected payloads for fixture UID2, got none")
-	}
+	require.NoError(t, err, "CarveWALMessages")
+	require.NotEmpty(t, payloads, "expected payloads for fixture UID2, got none")
 	t.Logf("CarveWALMessages extracted %d payloads for %q", len(payloads), fixtureUID2)
 }
 
 func TestCarveWALMessages_UnknownUID_ReturnsEmpty(t *testing.T) {
 	walBackupDir := t.TempDir()
-	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
 	payloads, err := CarveWALMessages(walBackupDir, "nonexistent-uid")
-	if err != nil {
-		t.Fatalf("CarveWALMessages: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads for unknown UID, got %d", len(payloads))
-	}
+	require.NoError(t, err, "CarveWALMessages")
+	assert.Empty(t, payloads)
 }
 
 func TestCarveWALMessages_SkipsNonWALFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a wal"), 0644)
+	err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a wal"), 0600)
+	require.NoError(t, err)
 
 	payloads, err := CarveWALMessages(dir, fixtureUID2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads (non-WAL files ignored), got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, payloads)
 }
 
 // ---------------------------------------------------------------------------
@@ -447,10 +340,10 @@ func buildWAL(entries []walEntry, firstUID string, addChecksums bool) []byte {
 			}
 			// 24-bit header: Trunc(1) | ShortForm=0(1) | IdRef(22)
 			hw := trBit<<23 | 0<<22 | ref&0x3FFFFF
-			out = append(out, byte(hw>>16), byte(hw>>8), byte(hw))
+			out = append(out, byte(hw>>16), byte(hw>>8), byte(hw)) //nolint:gosec
 
 			uid := []byte(e.uid)
-			out = append(out, byte(len(uid)>>8), byte(len(uid)))
+			out = append(out, byte(len(uid)>>8), byte(len(uid))) //nolint:gosec
 			out = append(out, uid...)
 		} else {
 			// Short form.
@@ -459,7 +352,7 @@ func buildWAL(entries []walEntry, firstUID string, addChecksums bool) []byte {
 				trBit = 1
 			}
 			hw := trBit<<23 | 1<<22 | ref&0x3FFFFF
-			out = append(out, byte(hw>>16), byte(hw>>8), byte(hw))
+			out = append(out, byte(hw>>16), byte(hw>>8), byte(hw)) //nolint:gosec
 		}
 
 		// Checksum
@@ -476,7 +369,7 @@ func buildWAL(entries []walEntry, firstUID string, addChecksums bool) []byte {
 			crc = adler32.Checksum(buf)
 		}
 		out = appendUint32(out, crc)
-		out = appendUint32(out, uint32(len(e.data)))
+		out = appendUint32(out, uint32(len(e.data))) //nolint:gosec
 		out = appendUint64(out, e.idx)
 		out = appendUint64(out, e.term)
 		out = append(out, e.data...)
@@ -485,27 +378,22 @@ func buildWAL(entries []walEntry, firstUID string, addChecksums bool) []byte {
 }
 
 func appendUint32(b []byte, v uint32) []byte {
-	return append(b, byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+	return append(b, byte(v>>24), byte(v>>16), byte(v>>8), byte(v)) //nolint:gosec
 }
 
 func appendUint64(b []byte, v uint64) []byte {
 	return append(b,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32), //nolint:gosec
+		byte(v>>24), byte(v>>16), byte(v>>8), byte(v)) //nolint:gosec
 }
 
 // writeTmp writes data to a temp file and returns its path.
 func writeTmp(t *testing.T, data []byte) string {
 	t.Helper()
 	f, err := os.CreateTemp(t.TempDir(), "*.wal")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.Write(data); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	_, err = f.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 	return f.Name()
 }

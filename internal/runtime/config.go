@@ -9,7 +9,7 @@ const (
 	EnvVarAMQPURL    = "ARGUS_AMQP_URL"
 	EnvVarMgmtURL    = "ARGUS_MGMT_URL"
 	EnvVarMgmtUser   = "ARGUS_MGMT_USER"
-	EnvVarMgmtPass   = "ARGUS_MGMT_PASS"
+	EnvVarMgmtPass   = "ARGUS_MGMT_PASS" //nolint:gosec
 	EnvVarBackupDir  = "ARGUS_BACKUP_DIR"
 	EnvVarQuorumPath = "ARGUS_QUORUM_PATH"
 )

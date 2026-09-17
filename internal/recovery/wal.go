@@ -53,6 +53,8 @@ type WALRecord struct {
 //	    Idx        uint64
 //	    Term       uint64
 //	    ETFData    [DataLen]byte
+//
+//nolint:gocognit
 func ParseWALMessagesForQueue(walPath, targetUID string) ([][]byte, error) {
 	data, err := os.ReadFile(walPath)
 	if err != nil {
@@ -183,6 +185,8 @@ func ParseWALMessagesForQueue(walPath, targetUID string) ([][]byte, error) {
 
 // ParseWALRecords returns all WAL records from the file, optionally filtered
 // to a specific UID (pass "" for all UIDs).
+//
+//nolint:gocognit
 func ParseWALRecords(walPath, filterUID string) ([]*WALRecord, error) {
 	data, err := os.ReadFile(walPath)
 	if err != nil {
@@ -300,7 +304,7 @@ func CarveWALMessages(walDir, queueUID string) ([][]byte, error) {
 
 	var payloads [][]byte
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".wal" {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != walFileSuffix {
 			continue
 		}
 		p, err := ParseWALMessagesForQueue(filepath.Join(walDir, entry.Name()), queueUID)

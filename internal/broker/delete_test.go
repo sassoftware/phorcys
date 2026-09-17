@@ -9,6 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -18,7 +21,7 @@ import (
 func TestDeleteQueue_NoContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
-			t.Errorf("expected DELETE, got %s", r.Method)
+			assert.Equal(t, http.MethodDelete, r.Method, "expected DELETE, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -26,7 +29,7 @@ func TestDeleteQueue_NoContent(t *testing.T) {
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	if err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q"); err != nil {
-		t.Errorf("unexpected error: %v", err)
+		assert.NoError(t, err, "unexpected error: %v", err)
 	}
 }
 
@@ -38,7 +41,7 @@ func TestDeleteQueue_OKStatusAlsoSucceeds(t *testing.T) {
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	if err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q"); err != nil {
-		t.Errorf("unexpected error: %v", err)
+		assert.NoError(t, err, "unexpected error: %v", err)
 	}
 }
 
@@ -50,11 +53,9 @@ func TestDeleteQueue_ServerErrorReturnsError(t *testing.T) {
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q")
-	if err == nil {
-		t.Error("expected error for 500 response")
-	}
+	require.Error(t, err, "expected error for 500 response")
 	if !strings.Contains(err.Error(), "500") {
-		t.Errorf("error should mention status code, got: %v", err)
+		assert.Contains(t, err.Error(), "500", "error should mention status code, got: %v", err)
 	}
 }
 
@@ -66,9 +67,7 @@ func TestDeleteQueue_ForbiddenReturnsError(t *testing.T) {
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q")
-	if err == nil {
-		t.Error("expected error for 403 response")
-	}
+	require.Error(t, err, "expected error for 403 response")
 }
 
 func TestDeleteQueue_SetsBasicAuth(t *testing.T) {
@@ -85,9 +84,11 @@ func TestDeleteQueue_SetsBasicAuth(t *testing.T) {
 		Password: "mypass",
 		Client:   server.Client(),
 	}
-	dm.deleteQueue(context.Background(), "/api/queues/%2F/q")
+	err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q")
+	assert.NoError(t, err)
 	if receivedUser != "myuser" || receivedPass != "mypass" {
-		t.Errorf("basic auth: got user=%q pass=%q", receivedUser, receivedPass)
+		assert.Equal(t, "myuser", receivedUser, "basic auth: got user=%q pass=%q", receivedUser, receivedPass)
+		assert.Equal(t, "mypass", receivedPass, "basic auth: got user=%q pass=%q", receivedUser, receivedPass)
 	}
 }
 
@@ -102,9 +103,8 @@ func TestDeleteOrForceEvict_HTTPDeleteSucceeds(t *testing.T) {
 	defer server.Close()
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
-	if err := dm.DeleteOrForceEvict(context.Background(), "/", "q"); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	err := dm.DeleteOrForceEvict(context.Background(), "/", "q")
+	assert.NoError(t, err)
 }
 
 func TestDeleteOrForceEvict_FallsBackToErlangWhenHTTPFails(t *testing.T) {
@@ -120,12 +120,8 @@ func TestDeleteOrForceEvict_FallsBackToErlangWhenHTTPFails(t *testing.T) {
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	err := dm.DeleteOrForceEvict(context.Background(), "/", "q")
 	// We expect an error because rabbitmqctl is not available in the test env.
-	if err == nil {
-		t.Error("expected error when both HTTP and Erlang eviction fail")
-	}
-	if !strings.Contains(err.Error(), "both standard and force-deletion failed") {
-		t.Errorf("unexpected error message: %v", err)
-	}
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "both standard and force-deletion failed")
 }
 
 func TestDeleteOrForceEvict_URLEncodesVhostAndQueue(t *testing.T) {
@@ -140,12 +136,13 @@ func TestDeleteOrForceEvict_URLEncodesVhostAndQueue(t *testing.T) {
 	defer server.Close()
 
 	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
-	dm.DeleteOrForceEvict(context.Background(), "/", "my queue")
+	err := dm.DeleteOrForceEvict(context.Background(), "/", "my queue")
+	assert.NoError(t, err)
 
 	if !strings.Contains(receivedPath, "%2F") {
-		t.Errorf("expected %%2F for vhost '/', got path: %q", receivedPath)
+		assert.Contains(t, receivedPath, "%2F", "expected %%2F for vhost '/', got path: %q", receivedPath)
 	}
 	if !strings.Contains(receivedPath, "my+queue") && !strings.Contains(receivedPath, "my%20queue") {
-		t.Errorf("expected encoded space in queue name, got path: %q", receivedPath)
+		assert.True(t, strings.Contains(receivedPath, "my+queue") || strings.Contains(receivedPath, "my%20queue"), "expected encoded space in queue name, got path: %q", receivedPath)
 	}
 }

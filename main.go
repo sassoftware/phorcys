@@ -50,7 +50,8 @@ func main() {
 
 	log.Println("Argus started — monitoring RabbitMQ log exchange for errors...")
 	if err := m.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.Fatalf("FATAL: Monitor exited unexpectedly: %v", err)
+		log.Printf("FATAL: Monitor exited unexpectedly: %v", err)
+		return
 	}
 	log.Println("Argus shutdown complete.")
 }

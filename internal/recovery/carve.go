@@ -20,7 +20,7 @@ func CarveMessagesFromDir(dirPath string) ([][]byte, error) {
 	var allPayloads [][]byte
 	for _, f := range files {
 		ext := filepath.Ext(f.Name())
-		if ext != ".segment" && ext != ".wal" {
+		if ext != segmentFileSuffix && ext != walFileSuffix {
 			continue
 		}
 		payloads, err := CarveMessagesFromFile(filepath.Join(dirPath, f.Name()))

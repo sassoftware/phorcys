@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/sassoftware/argus/internal/broker"
 	"github.com/sassoftware/argus/internal/runtime"
 	"github.com/sassoftware/argus/internal/testutil"
@@ -33,7 +36,7 @@ func TestProcessLogLine_NoRelevantKeywords_IgnoresLine(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	select {
 	case job := <-lm.jobChannel:
-		t.Errorf("did not expect a job for a line with no quorum keywords; got %+v", job)
+		assert.Failf(t, "did not expect a job for a line with no quorum keywords", "got %+v", job)
 	default:
 	}
 }
@@ -50,7 +53,7 @@ func TestProcessLogLine_KeywordButNoMatchingQueueName(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	select {
 	case job := <-lm.jobChannel:
-		t.Errorf("did not expect a job; got %+v", job)
+		assert.Failf(t, "did not expect a job", "got %+v", job)
 	default:
 	}
 }
@@ -70,7 +73,7 @@ func TestProcessLogLine_MatchEnqueuesPendingCheck(t *testing.T) {
 
 	key := "/" + "/" + "events.queue"
 	if _, ok := lm.pendingChecks.Load(key); !ok {
-		t.Errorf("expected key %q in pendingChecks after log match", key)
+		assert.Failf(t, "expected key in pendingChecks after log match", "%q", key)
 	}
 }
 
@@ -94,12 +97,8 @@ func TestProcessLogLine_StopsAtFirstMatch(t *testing.T) {
 	_, alphaStored := lm.pendingChecks.Load(alphaKey)
 	_, betaStored := lm.pendingChecks.Load(betaKey)
 
-	if !alphaStored && !betaStored {
-		t.Error("expected at least one queue to be stored in pendingChecks")
-	}
-	if alphaStored && betaStored {
-		t.Error("only the first matching queue should be stored (break after first match)")
-	}
+	assert.True(t, alphaStored || betaStored, "expected at least one queue to be stored in pendingChecks")
+	assert.False(t, alphaStored && betaStored, "only the first matching queue should be stored (break after first match)")
 }
 
 // ---------------------------------------------------------------------------
@@ -127,12 +126,12 @@ func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 	case <-done:
 		// Good: returned quickly.
 	case <-time.After(500 * time.Millisecond):
-		t.Error("coalesceLogEvent with duplicate key should return immediately, not sleep 4s")
+		assert.Fail(t, "coalesceLogEvent with duplicate key should return immediately, not sleep 4s")
 	}
 
 	select {
 	case job := <-lm.jobChannel:
-		t.Errorf("no job expected for duplicate key; got %+v", job)
+		assert.Failf(t, "no job expected for duplicate key", "got %+v", job)
 	default:
 	}
 }
@@ -149,28 +148,24 @@ func TestSyncInventory_OnlyQuorumQueuesCached(t *testing.T) {
 		{Name: "q4", VHost: "/", Type: "stream"},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(queues)
+		err := json.NewEncoder(w).Encode(queues)
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
-	if err := lm.syncInventory(context.Background()); err != nil {
-		t.Fatalf("syncInventory: %v", err)
-	}
+	err := lm.syncInventory(context.Background())
+	require.NoError(t, err)
 
 	lm.registryLock.RLock()
 	list := lm.quorumList
 	lm.registryLock.RUnlock()
 
-	if len(list) != 2 {
-		t.Errorf("expected 2 quorum queues, got %d: %+v", len(list), list)
-	}
+	require.Equal(t, len(list), 2)
 	for _, q := range list {
-		if q.Name == "q2" || q.Name == "q4" {
-			t.Errorf("non-quorum queue %q must not be in quorumList", q.Name)
-		}
+		assert.False(t, q.Name == "q2" || q.Name == "q4", "non-quorum queue must not be in quorumList", "%q", q.Name)
 	}
 }
 
@@ -183,9 +178,8 @@ func TestSyncInventory_EmptyListOnAPIError(t *testing.T) {
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
-	if err := lm.syncInventory(context.Background()); err == nil {
-		t.Error("expected error when management API returns non-200")
-	}
+	err := lm.syncInventory(context.Background())
+	require.Error(t, err, "expected error when management API returns non-200")
 }
 
 func TestSyncInventory_ReplacesExistingList(t *testing.T) {
@@ -198,9 +192,11 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callN++
 		if callN == 1 {
-			json.NewEncoder(w).Encode(queues1)
+			err := json.NewEncoder(w).Encode(queues1)
+			require.NoError(t, err)
 		} else {
-			json.NewEncoder(w).Encode(queues2)
+			err := json.NewEncoder(w).Encode(queues2)
+			require.NoError(t, err)
 		}
 	}))
 	defer server.Close()
@@ -208,15 +204,17 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
-	lm.syncInventory(context.Background())
-	lm.syncInventory(context.Background())
+	err := lm.syncInventory(context.Background())
+	require.NoError(t, err)
+	err = lm.syncInventory(context.Background())
+	require.NoError(t, err)
 
 	lm.registryLock.RLock()
 	list := lm.quorumList
 	lm.registryLock.RUnlock()
 
 	if len(list) != 1 || list[0].Name != "new.q" {
-		t.Errorf("expected list to contain only 'new.q', got %+v", list)
+		assert.Failf(t, "expected list to contain only 'new.q'", "got %+v", list)
 	}
 }
 
@@ -230,7 +228,7 @@ func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
 		Name: "ok.q", VHost: "/", Type: "quorum",
 		Status: "running", Leader: "rabbit@n1", Node: "rabbit@n1",
 	}
-	server := testutil.TestHealthServer(nodes, queue, 0, nil)
+	server := testutil.TestHealthServer(t, nodes, queue, 0, nil)
 	defer server.Close()
 
 	dm := newTestManager(server)
@@ -258,7 +256,7 @@ func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Error("pendingChecks key was not deleted after a Green health result")
+	assert.Fail(t, "pendingChecks key was not deleted after a Green health result")
 }
 
 func newTestManager(server *httptest.Server) *broker.DiagnosticsManager {

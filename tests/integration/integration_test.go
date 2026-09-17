@@ -11,22 +11,19 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_QuorumQueueRecovery(t *testing.T) {
-	amqpClusterURL := "amqp://guest:guest@localhost:5672/"
+	amqpClusterURL := "amqp://guest:guest@localhost:5672/" //nolint:gosec
 	ctx := context.Background()
 
 	conn, err := amqp.Dial(amqpClusterURL)
-	if err != nil {
-		t.Fatalf("Failed to connect to cluster: %v", err)
-	}
+	require.NoError(t, err, "Failed to connect to cluster: %v", err)
 	defer conn.Close()
 
 	ch, err := conn.Channel()
-	if err != nil {
-		t.Fatalf("Failed to open channel: %v", err)
-	}
+	require.NoError(t, err, "Failed to open channel: %v", err)
 	defer ch.Close()
 
 	// 1. Declare the quorum queue
@@ -40,9 +37,7 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 		false, // no-wait
 		amqp.Table{"x-queue-type": "quorum"},
 	)
-	if err != nil {
-		t.Fatalf("Failed to declare quorum queue: %v", err)
-	}
+	require.NoError(t, err, "Failed to declare quorum queue: %v", err)
 	log.Printf("Declared quorum queue: %s", quorumQueue)
 
 	// 2. Publish 20000 messages
@@ -60,9 +55,7 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 				DeliveryMode: amqp.Persistent, // Forces Raft to write to disk segments
 			},
 		)
-		if err != nil {
-			t.Fatalf("Failed to publish message %d: %v", i, err)
-		}
+		require.NoError(t, err, "Failed to publish message %d: %v", i, err)
 	}
 	log.Println("Successfully published 20000 persistent messages to quorum queue.")
 
@@ -84,9 +77,7 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 			Body:        []byte("TRIGGER_APPEND_CORRUPTION"),
 		},
 	)
-	if err != nil {
-		t.Fatalf("Failed to dispatch fault trigger to sidecar: %v", err)
-	}
+	require.NoError(t, err, "Failed to dispatch fault trigger to sidecar: %v", err)
 
 	log.Println("Sent corruption signal. Sidecar is corrupting the logs now.")
 }

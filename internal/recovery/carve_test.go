@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/DeedleFake/etf"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -23,15 +25,9 @@ func TestExtractRawBinaries_FlatTuple(t *testing.T) {
 		[]byte("payload two"),
 	}
 	bins := extractRawBinaries(term)
-	if len(bins) != 2 {
-		t.Fatalf("expected 2 binaries, got %d", len(bins))
-	}
-	if string(bins[0]) != "payload one" {
-		t.Errorf("bins[0] = %q", bins[0])
-	}
-	if string(bins[1]) != "payload two" {
-		t.Errorf("bins[1] = %q", bins[1])
-	}
+	require.Len(t, bins, 2, "expected 2 binaries, got %d", len(bins))
+	assert.Equal(t, "payload one", string(bins[0]))
+	assert.Equal(t, "payload two", string(bins[1]))
 }
 
 func TestExtractRawBinaries_NestedList(t *testing.T) {
@@ -42,39 +38,29 @@ func TestExtractRawBinaries_NestedList(t *testing.T) {
 		},
 	}
 	bins := extractRawBinaries(term)
-	if len(bins) != 1 || string(bins[0]) != "nested" {
-		t.Errorf("got %d bins, expected 1 with value 'nested'", len(bins))
-	}
+	assert.True(t, len(bins) == 1 && string(bins[0]) == "nested", "got %d bins, expected 1 with value 'nested'", len(bins))
 }
 
 func TestExtractRawBinaries_EmptyBinaryIgnored(t *testing.T) {
 	term := etf.Tuple{[]byte{}, []byte("ok")}
 	bins := extractRawBinaries(term)
-	if len(bins) != 1 || string(bins[0]) != "ok" {
-		t.Errorf("empty binary should be ignored; got %d bins", len(bins))
-	}
+	assert.True(t, len(bins) == 1 && string(bins[0]) == "ok", "empty binary should be ignored; got %d bins", len(bins))
 }
 
 func TestExtractRawBinaries_CopiesData(t *testing.T) {
 	original := []byte("original content")
 	term := etf.Tuple{original}
 	bins := extractRawBinaries(term)
-	if len(bins) != 1 {
-		t.Fatalf("expected 1 binary")
-	}
+	require.Len(t, bins, 1, "expected 1 binary")
 	// Mutate the result; original slice must be unchanged.
 	bins[0][0] = 'X'
-	if original[0] == 'X' {
-		t.Error("extractRawBinaries should copy data, not return the original slice")
-	}
+	assert.NotEqual(t, byte('X'), original[0], "extractRawBinaries should copy data, not return the original slice")
 }
 
 func TestExtractRawBinaries_NonBinaryTermsIgnored(t *testing.T) {
 	term := etf.Tuple{etf.Atom("just"), etf.Atom("atoms"), int64(42)}
 	bins := extractRawBinaries(term)
-	if len(bins) != 0 {
-		t.Errorf("expected 0 binaries for non-binary terms, got %d", len(bins))
-	}
+	assert.Empty(t, bins)
 }
 
 // ---------------------------------------------------------------------------
@@ -84,30 +70,22 @@ func TestExtractRawBinaries_NonBinaryTermsIgnored(t *testing.T) {
 func TestFindBasicMessagePayloads_ValidMessage(t *testing.T) {
 	msg := makeBasicMessageTerm([]byte("the body"))
 	payloads := findBasicMessagePayloads(msg)
-	if len(payloads) != 1 {
-		t.Fatalf("expected 1 payload, got %d", len(payloads))
-	}
-	if string(payloads[0]) != "the body" {
-		t.Errorf("payload = %q, want %q", payloads[0], "the body")
-	}
+	require.Len(t, payloads, 1, "expected 1 payload, got %d", len(payloads))
+	assert.Equal(t, "the body", string(payloads[0]))
 }
 
 func TestFindBasicMessagePayloads_NestedInList(t *testing.T) {
 	msg := makeBasicMessageTerm([]byte("nested body"))
 	outer := etf.List{etf.Atom("irrelevant"), msg}
 	payloads := findBasicMessagePayloads(outer)
-	if len(payloads) == 0 {
-		t.Fatal("expected at least 1 payload from nested list")
-	}
+	require.NotEmpty(t, payloads, "expected at least 1 payload from nested list")
 }
 
 func TestFindBasicMessagePayloads_NestedInTuple(t *testing.T) {
 	msg := makeBasicMessageTerm([]byte("deep body"))
 	outer := etf.Tuple{etf.Atom("raft_entry"), int64(1), msg}
 	payloads := findBasicMessagePayloads(outer)
-	if len(payloads) == 0 {
-		t.Fatal("expected at least 1 payload from nested tuple")
-	}
+	require.NotEmpty(t, payloads, "expected at least 1 payload from nested tuple")
 }
 
 func TestFindBasicMessagePayloads_WrongAtomIgnored(t *testing.T) {
@@ -118,25 +96,19 @@ func TestFindBasicMessagePayloads_WrongAtomIgnored(t *testing.T) {
 		etf.Tuple{etf.Atom("content"), []byte("should not appear")},
 	}
 	payloads := findBasicMessagePayloads(term)
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads for wrong atom, got %d", len(payloads))
-	}
+	assert.Empty(t, payloads)
 }
 
 func TestFindBasicMessagePayloads_TupleTooShort(t *testing.T) {
 	// A tuple with atom basic_message but fewer than 4 elements.
 	term := etf.Tuple{etf.Atom("basic_message"), etf.Atom("rk")}
 	payloads := findBasicMessagePayloads(term)
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads for short tuple, got %d", len(payloads))
-	}
+	assert.Empty(t, payloads)
 }
 
 func TestFindBasicMessagePayloads_NonTupleTermIgnored(t *testing.T) {
 	payloads := findBasicMessagePayloads(etf.Atom("nothing"))
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads for bare atom, got %d", len(payloads))
-	}
+	assert.Empty(t, payloads)
 }
 
 // ---------------------------------------------------------------------------
@@ -148,61 +120,54 @@ func TestFindBasicMessagePayloads_NonTupleTermIgnored(t *testing.T) {
 func writeSegmentFile(t *testing.T, dir, ext string, msg any) string {
 	t.Helper()
 	encoded, err := encodeETFTerm(msg)
-	if err != nil {
-		t.Fatalf("encode ETF: %v", err)
-	}
+	require.NoError(t, err)
 	f, err := os.CreateTemp(dir, "*"+ext)
-	if err != nil {
-		t.Fatalf("create temp file: %v", err)
-	}
-	defer f.Close()
-	f.Write([]byte{0x00, 0x01, 0x02}) // junk prefix
-	f.Write(encoded)
-	f.Write([]byte{0xFF, 0xFE}) // junk suffix
+	require.NoError(t, err)
+	defer func() {
+		err = f.Close()
+		require.NoError(t, err)
+	}()
+	_, err = f.Write([]byte{0x00, 0x01, 0x02}) // junk prefix
+	require.NoError(t, err)
+	_, err = f.Write(encoded)
+	require.NoError(t, err)
+	_, err = f.Write([]byte{0xFF, 0xFE}) // junk suffix
+	require.NoError(t, err)
 	return f.Name()
 }
 
 func TestCarveMessagesFromFile_ExtractsPayload(t *testing.T) {
 	dir := t.TempDir()
-	path := writeSegmentFile(t, dir, ".segment", makeBasicMessageTerm([]byte("file payload")))
+	path := writeSegmentFile(t, dir, segmentFileSuffix, makeBasicMessageTerm([]byte("file payload")))
 
 	payloads, err := CarveMessagesFromFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(payloads) == 0 {
-		t.Fatal("expected at least 1 payload")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, payloads)
 	found := false
 	for _, p := range payloads {
 		if string(p) == "file payload" {
 			found = true
 		}
 	}
-	if !found {
-		t.Errorf("expected 'file payload' in results; got: %q", payloads)
-	}
+	assert.True(t, found)
 }
 
 func TestCarveMessagesFromFile_MissingFileReturnsError(t *testing.T) {
 	_, err := CarveMessagesFromFile("/no/such/file.segment")
-	if err == nil {
-		t.Error("expected error for missing file")
-	}
+	assert.Error(t, err)
 }
 
 func TestCarveMessagesFromFile_AllJunkReturnsEmpty(t *testing.T) {
-	f, _ := os.CreateTemp(t.TempDir(), "*.segment")
-	f.Write([]byte{0x01, 0x02, 0x03, 0x04, 0x05})
-	f.Close()
+	f, err := os.CreateTemp(t.TempDir(), "*.segment")
+	require.NoError(t, err)
+	_, err = f.Write([]byte{0x01, 0x02, 0x03, 0x04, 0x05})
+	require.NoError(t, err)
+	err = f.Close()
+	require.NoError(t, err)
 
 	payloads, err := CarveMessagesFromFile(f.Name())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads from junk data, got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, payloads)
 }
 
 func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
@@ -213,14 +178,15 @@ func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 	f, _ := os.CreateTemp(dir, "*.wal")
 	// Write messages back-to-back; no junk bytes between them so the scanner
 	// finds msg2's magic byte immediately after consuming msg1.
-	f.Write(msg1)
-	f.Write(msg2)
-	f.Close()
+	_, err := f.Write(msg1)
+	require.NoError(t, err)
+	_, err = f.Write(msg2)
+	require.NoError(t, err)
+	err = f.Close()
+	require.NoError(t, err)
 
 	payloads, err := CarveMessagesFromFile(f.Name())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	var foundFirst, foundSecond bool
 	for _, p := range payloads {
@@ -231,10 +197,8 @@ func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 			foundSecond = true
 		}
 	}
-	if !foundFirst || !foundSecond {
-		t.Errorf("expected both 'first-message' and 'second-message' payloads; got %d payloads: %q",
-			len(payloads), payloads)
-	}
+	assert.True(t, foundFirst && foundSecond, "expected both 'first-message' and 'second-message' payloads; got %d payloads: %q",
+		len(payloads), payloads)
 }
 
 // ---------------------------------------------------------------------------
@@ -245,37 +209,31 @@ func TestCarveMessagesFromDir_ProcessesSegmentAndWal(t *testing.T) {
 	dir := t.TempDir()
 	msg, _ := encodeETFTerm(makeBasicMessageTerm([]byte("dir msg")))
 
-	os.WriteFile(filepath.Join(dir, "0000000000000001.segment"), msg, 0644)
-	os.WriteFile(filepath.Join(dir, "00000001.wal"), msg, 0644)
+	err := os.WriteFile(filepath.Join(dir, "0000000000000001.segment"), msg, 0600)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(dir, "00000001.wal"), msg, 0600)
+	require.NoError(t, err)
 	// Files with other extensions must be ignored.
-	os.WriteFile(filepath.Join(dir, "skip.tmp"), msg, 0644)
-	os.WriteFile(filepath.Join(dir, "skip.log"), msg, 0644)
+	err = os.WriteFile(filepath.Join(dir, "skip.tmp"), msg, 0600)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(dir, "skip.log"), msg, 0600)
+	require.NoError(t, err)
 
 	payloads, err := CarveMessagesFromDir(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	// Each of the 2 valid files contributes at least 1 payload.
-	if len(payloads) < 2 {
-		t.Errorf("expected >= 2 payloads, got %d", len(payloads))
-	}
+	assert.GreaterOrEqual(t, len(payloads), 2)
 }
 
 func TestCarveMessagesFromDir_EmptyDirReturnsEmpty(t *testing.T) {
 	payloads, err := CarveMessagesFromDir(t.TempDir())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(payloads) != 0 {
-		t.Errorf("expected 0 payloads for empty dir, got %d", len(payloads))
-	}
+	require.NoError(t, err)
+	assert.Empty(t, payloads)
 }
 
 func TestCarveMessagesFromDir_InvalidDirReturnsError(t *testing.T) {
 	_, err := CarveMessagesFromDir("/no/such/dir")
-	if err == nil {
-		t.Error("expected error for non-existent directory")
-	}
+	assert.Error(t, err)
 }
 
 func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
@@ -283,14 +241,14 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 
 	// A good segment file.
 	good, _ := encodeETFTerm(makeBasicMessageTerm([]byte("good")))
-	os.WriteFile(filepath.Join(dir, "good.segment"), good, 0644)
+	err := os.WriteFile(filepath.Join(dir, "good.segment"), good, 0600)
+	require.NoError(t, err)
 	// A corrupt segment file (no valid ETF).
-	os.WriteFile(filepath.Join(dir, "bad.segment"), []byte{0x01, 0x02}, 0644)
+	err = os.WriteFile(filepath.Join(dir, "bad.segment"), []byte{0x01, 0x02}, 0600)
+	require.NoError(t, err)
 
 	payloads, err := CarveMessagesFromDir(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	// We should still get payloads from the good file even though bad.segment had no messages.
 	found := false
 	for _, p := range payloads {
@@ -298,9 +256,7 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 			found = true
 		}
 	}
-	if !found {
-		t.Error("expected payload 'good' to be recovered despite corrupt sibling")
-	}
+	assert.True(t, found)
 }
 
 // ---------------------------------------------------------------------------

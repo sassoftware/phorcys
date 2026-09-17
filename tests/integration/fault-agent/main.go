@@ -122,7 +122,7 @@ func CorruptQuorumQueueData(dataDir string) error {
 		}
 
 		if !d.IsDir() && strings.Contains(path, "/quorum/") && filepath.Ext(path) == ".segment" {
-			file, err := os.OpenFile(path, os.O_WRONLY, 0644)
+			file, err := os.OpenFile(path, os.O_WRONLY, 0600)
 			if err != nil {
 				return fmt.Errorf("failed to open %s: %w", path, err)
 			}

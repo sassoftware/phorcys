@@ -2,10 +2,12 @@
 
 ![Argus watchdog for RabbitMQ](logo.png)
 
-Argus is a self-healing watchdog for RabbitMQ **quorum queues**. It monitors the broker's internal log exchange for 
-Raft/quorum error signatures, evaluates whether a flagged queue is truly unrecoverable, and — when it is — automatically
-backs up the on-disk data, deletes the corrupted queue, carves recoverable messages from the backup files, and 
-republishes them to the original queue.
+Argus is a self-healing watchdog for RabbitMQ **quorum queues**. It monitors
+the broker's internal log exchange for Raft/quorum error signatures, evaluates
+whether a flagged queue is truly unrecoverable, and — when it is —
+automatically backs up the on-disk data, deletes the corrupted queue, carves
+recoverable messages from the backup files, and republishes them to the
+original queue.
 
 ## How it works
 
@@ -41,7 +43,8 @@ amq.rabbitmq.log (warning/error)
 
 ## Configuration
 
-All settings are provided via environment variables with sensible defaults for local development.
+All settings are provided via environment variables with sensible defaults for
+local development.
 
 | Variable            | Default                                                             | Description                                             |
 |---------------------|---------------------------------------------------------------------|---------------------------------------------------------|
@@ -76,7 +79,8 @@ Argus runs until it receives `SIGINT` or `SIGTERM`.
 ## Requirements
 
 - RabbitMQ 3.8+ with quorum queues enabled
-- The process must run on the **same host** as the RabbitMQ node (for filesystem access to Raft data and `rabbitmqctl` fallback eviction)
+- The process must run on the **same host** as the RabbitMQ node (for
+  filesystem access to Raft data and `rabbitmqctl` fallback eviction)
 - Go 1.21+ to build from source
 
 ## Project layout
@@ -95,14 +99,21 @@ argus/
 
 ## Limitations & caveats
 
-- **Best-effort recovery.** The ETF carver scans raw bytes heuristically. Messages that span corrupted sectors may not be recoverable.
-- **Single-node access required.** Argus must run on the RabbitMQ node that hosts the quorum queue data. In a multi-node cluster, run one Argus instance per node.
-- **AMQP message metadata is not preserved.** Recovered messages are republished as `application/octet-stream` with `DeliveryMode=Persistent`. Original headers, content-type, and routing metadata are not reconstructed.
-- **Duplicate delivery is possible.** If a message was already acknowledged before the crash, carving may recover and republish it again.
+- **Best-effort recovery.** The ETF carver scans raw bytes heuristically.
+  Messages that span corrupted sectors may not be recoverable.
+- **Single-node access required.** Argus must run on the RabbitMQ node that
+  hosts the quorum queue data. In a multi-node cluster, run one Argus instance
+  per node.
+- **AMQP message metadata is not preserved.** Recovered messages are
+  republished as `application/octet-stream` with `DeliveryMode=Persistent`.
+  Original headers, content-type, and routing metadata are not reconstructed.
+- **Duplicate delivery is possible.** If a message was already acknowledged
+  before the crash, carving may recover and republish it again.
 
 ## Future
 
-- Eliminate the limitation where original headers, content-type and routing metadata are not recovered.
+- Eliminate the limitation where original headers, content-type and routing
+  metadata are not recovered.
 - Ensure only one node in the RabbitMQ cluster attempts recovery of a queue.
 - Manual mode to specify recovery of a specific queue.
 - Remove orphaned queues.
@@ -135,4 +146,5 @@ This project is licensed under the [Apache 2.0 License](LICENSE).
 |----------------------------------|---------------------------------------------------------------------|
 | `github.com/DeedleFake/etf`      | [LICENSE](https://github.com/DeedleFake/etf/blob/master/LICENSE)    |
 | `github.com/rabbitmq/amqp091-go` | [LICENSE](https://github.com/rabbitmq/amqp091-go/blob/main/LICENSE) |
+| `github.com/stretchr/testify`    | [LICENSE](https://github.com/stretchr/testify/blob/master/LICENSE)  |
 <!-- markdownlint-enable MD013 -->

@@ -6,6 +6,8 @@ package recovery
 import (
 	"context"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // RepublishMessages requires a live AMQP broker; tests here cover the error
@@ -13,9 +15,7 @@ import (
 
 func TestRepublishMessages_InvalidURLReturnsError(t *testing.T) {
 	err := RepublishMessages(context.Background(), "amqp://invalid.host.test:5672/", "q", [][]byte{[]byte("x")})
-	if err == nil {
-		t.Error("expected error when broker is unreachable")
-	}
+	assert.Error(t, err, "expected error when broker is unreachable")
 }
 
 func TestRepublishMessages_EmptyPayloadsConnectsButPublishesNothing(t *testing.T) {

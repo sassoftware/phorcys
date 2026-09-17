@@ -215,8 +215,10 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 				}()
 			case broker.HealthTransient:
 				log.Printf("[Worker #%d] Queue %s is transiently down — monitoring, no action taken", id, key)
-			default:
+			case broker.HealthGreen:
 				log.Printf("[Worker #%d] Queue %s is healthy (%v) — no action required", id, key, health)
+			default:
+				log.Printf("[Worker #%d] Queue %s has unknown health status (%v) — no action taken", id, key, health)
 			}
 
 			lm.pendingChecks.Delete(key)

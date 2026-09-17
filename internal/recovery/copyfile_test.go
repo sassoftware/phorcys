@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -19,29 +22,19 @@ func TestCopyFile_CopiesContent(t *testing.T) {
 	dst := filepath.Join(dir, "dst.dat")
 
 	content := []byte("hello argus 1234")
-	if err := os.WriteFile(src, content, 0644); err != nil {
-		t.Fatalf("write src: %v", err)
-	}
+	require.NoError(t, os.WriteFile(src, content, 0600), "write src")
 
-	if err := copyFile(src, dst); err != nil {
-		t.Fatalf("copyFile: %v", err)
-	}
+	require.NoError(t, copyFile(src, dst), "copyFile")
 
 	got, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatalf("read dst: %v", err)
-	}
-	if string(got) != string(content) {
-		t.Errorf("dst content = %q, want %q", got, content)
-	}
+	require.NoError(t, err, "read dst: %v", err)
+	assert.Equal(t, string(content), string(got))
 }
 
 func TestCopyFile_MissingSourceReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	err := copyFile(filepath.Join(dir, "no-such.dat"), filepath.Join(dir, "dst.dat"))
-	if err == nil {
-		t.Error("expected error for missing source file")
-	}
+	assert.Error(t, err, "expected error for missing source file")
 }
 
 func TestCopyFile_OverwritesExistingDestination(t *testing.T) {
@@ -49,14 +42,12 @@ func TestCopyFile_OverwritesExistingDestination(t *testing.T) {
 	src := filepath.Join(dir, "src.dat")
 	dst := filepath.Join(dir, "dst.dat")
 
-	os.WriteFile(src, []byte("new content"), 0644)
-	os.WriteFile(dst, []byte("old content that should be gone"), 0644)
+	err := os.WriteFile(src, []byte("new content"), 0600)
+	require.NoError(t, err)
+	err = os.WriteFile(dst, []byte("old content that should be gone"), 0600)
+	require.NoError(t, err)
 
-	if err := copyFile(src, dst); err != nil {
-		t.Fatalf("copyFile: %v", err)
-	}
+	require.NoError(t, copyFile(src, dst), "copyFile")
 	got, _ := os.ReadFile(dst)
-	if string(got) != "new content" {
-		t.Errorf("dst = %q, expected overwrite with %q", got, "new content")
-	}
+	assert.Equal(t, "new content", string(got))
 }

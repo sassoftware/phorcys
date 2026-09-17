@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"testing"
 
 	"github.com/sassoftware/argus/internal/broker"
+	"github.com/stretchr/testify/require"
 )
 
 // TestHealthServer creates a test server that routes the three management API
@@ -16,18 +18,22 @@ import (
 // packages so both can exercise the health-check logic against a fake
 // RabbitMQ Management API without duplicating the HTTP test double.
 func TestHealthServer(
+	t *testing.T,
 	nodes []broker.RabbitNode,
 	queue *broker.RabbitQueue,
 	queueStatus int, // HTTP status for the specific-queue endpoint; 0 means use queue value
 	allQueues []broker.RabbitQueue,
 ) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := effectivePath(r)
-		switch {
-		case path == "/api/nodes":
-			json.NewEncoder(w).Encode(nodes)
-		case path == "/api/queues":
-			json.NewEncoder(w).Encode(allQueues)
+		switch path {
+		case "/api/nodes":
+			err := json.NewEncoder(w).Encode(nodes)
+			require.NoError(t, err)
+		case "/api/queues":
+			err := json.NewEncoder(w).Encode(allQueues)
+			require.NoError(t, err)
 		default:
 			// Specific queue endpoint
 			if queueStatus != 0 {
@@ -35,7 +41,8 @@ func TestHealthServer(
 				return
 			}
 			if queue != nil {
-				json.NewEncoder(w).Encode(queue)
+				err := json.NewEncoder(w).Encode(queue)
+				require.NoError(t, err)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
 			}

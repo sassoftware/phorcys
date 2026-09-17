@@ -38,7 +38,7 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, payload
 		true,
 		amqp.Table{})
 	if qErr != nil {
-		return fmt.Errorf("Failed to recreate queue : %w", qErr)
+		return fmt.Errorf("failed to recreate queue : %w", qErr)
 	}
 
 	for i, payload := range payloads {
