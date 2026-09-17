@@ -104,3 +104,32 @@ argus/
 - Manual mode to specify recovery of a specific queue.
 - Remove orphaned queues.
 - Possible classic queue support.
+
+---
+
+## Contributing
+
+Maintainers are accepting patches and contributions to this project.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details about submitting
+contributions to this project.
+
+---
+
+## Security Policy
+
+Please see our [Security Policy](SECURITY.md) for details.
+
+## License
+
+This project is licensed under the [Apache 2.0 License](LICENSE).
+
+---
+
+## Third-party dependencies
+
+<!-- markdownlint-disable MD013 -->
+| Dependency                       | License                                                             |
+|----------------------------------|---------------------------------------------------------------------|
+| `github.com/DeedleFake/etf`      | [LICENSE](https://github.com/DeedleFake/etf/blob/master/LICENSE)    |
+| `github.com/rabbitmq/amqp091-go` | [LICENSE](https://github.com/rabbitmq/amqp091-go/blob/main/LICENSE) |
+<!-- markdownlint-enable MD013 -->
