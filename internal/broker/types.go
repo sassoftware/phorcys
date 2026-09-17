@@ -1,15 +1,15 @@
-package rabbitmq
+package broker
 
-// Node represents the health metrics returned by /api/nodes
-type Node struct {
+// RabbitNode represents the health metrics returned by /api/nodes
+type RabbitNode struct {
 	Name          string `json:"name"`
 	Running       bool   `json:"running"`
 	MemAlarm      bool   `json:"mem_alarm"`
 	DiskFreeAlarm bool   `json:"disk_free_alarm"`
 }
 
-// Queue represents the state metrics returned by /api/queues
-type Queue struct {
+// RabbitQueue represents the state metrics returned by /api/queues
+type RabbitQueue struct {
 	Name    string   `json:"name"`
 	VHost   string   `json:"vhost"`
 	Type    string   `json:"type"`

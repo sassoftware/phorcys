@@ -1,4 +1,4 @@
-package actions
+package recovery
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/DeedleFake/etf"
-	"github.com/sassoftware/argus/internal/testware"
+	"github.com/sassoftware/argus/internal/testutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ func TestExtractRawBinaries_NonBinaryTermsIgnored(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFindBasicMessagePayloads_ValidMessage(t *testing.T) {
-	msg := testware.MakeBasicMessageTerm([]byte("the body"))
+	msg := testutil.MakeBasicMessageTerm([]byte("the body"))
 	payloads := findBasicMessagePayloads(msg)
 	if len(payloads) != 1 {
 		t.Fatalf("expected 1 payload, got %d", len(payloads))
@@ -90,7 +90,7 @@ func TestFindBasicMessagePayloads_ValidMessage(t *testing.T) {
 }
 
 func TestFindBasicMessagePayloads_NestedInList(t *testing.T) {
-	msg := testware.MakeBasicMessageTerm([]byte("nested body"))
+	msg := testutil.MakeBasicMessageTerm([]byte("nested body"))
 	outer := etf.List{etf.Atom("irrelevant"), msg}
 	payloads := findBasicMessagePayloads(outer)
 	if len(payloads) == 0 {
@@ -99,7 +99,7 @@ func TestFindBasicMessagePayloads_NestedInList(t *testing.T) {
 }
 
 func TestFindBasicMessagePayloads_NestedInTuple(t *testing.T) {
-	msg := testware.MakeBasicMessageTerm([]byte("deep body"))
+	msg := testutil.MakeBasicMessageTerm([]byte("deep body"))
 	outer := etf.Tuple{etf.Atom("raft_entry"), int64(1), msg}
 	payloads := findBasicMessagePayloads(outer)
 	if len(payloads) == 0 {
@@ -144,7 +144,7 @@ func TestFindBasicMessagePayloads_NonTupleTermIgnored(t *testing.T) {
 // ETF-encoded message wrapped in some surrounding junk bytes.
 func writeSegmentFile(t *testing.T, dir, ext string, msg any) string {
 	t.Helper()
-	encoded, err := testware.EncodeETFTerm(msg)
+	encoded, err := testutil.EncodeETFTerm(msg)
 	if err != nil {
 		t.Fatalf("encode ETF: %v", err)
 	}
@@ -161,7 +161,7 @@ func writeSegmentFile(t *testing.T, dir, ext string, msg any) string {
 
 func TestCarveMessagesFromFile_ExtractsPayload(t *testing.T) {
 	dir := t.TempDir()
-	path := writeSegmentFile(t, dir, ".segment", testware.MakeBasicMessageTerm([]byte("file payload")))
+	path := writeSegmentFile(t, dir, ".segment", testutil.MakeBasicMessageTerm([]byte("file payload")))
 
 	payloads, err := CarveMessagesFromFile(path)
 	if err != nil {
@@ -204,8 +204,8 @@ func TestCarveMessagesFromFile_AllJunkReturnsEmpty(t *testing.T) {
 
 func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 	dir := t.TempDir()
-	msg1, _ := testware.EncodeETFTerm(testware.MakeBasicMessageTerm([]byte("first-message")))
-	msg2, _ := testware.EncodeETFTerm(testware.MakeBasicMessageTerm([]byte("second-message")))
+	msg1, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("first-message")))
+	msg2, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("second-message")))
 
 	f, _ := os.CreateTemp(dir, "*.wal")
 	// Write messages back-to-back; no junk bytes between them so the scanner
@@ -240,7 +240,7 @@ func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 
 func TestCarveMessagesFromDir_ProcessesSegmentAndWal(t *testing.T) {
 	dir := t.TempDir()
-	msg, _ := testware.EncodeETFTerm(testware.MakeBasicMessageTerm([]byte("dir msg")))
+	msg, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("dir msg")))
 
 	os.WriteFile(filepath.Join(dir, "0000000000000001.segment"), msg, 0644)
 	os.WriteFile(filepath.Join(dir, "00000001.wal"), msg, 0644)
@@ -279,7 +279,7 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 	dir := t.TempDir()
 
 	// A good segment file.
-	good, _ := testware.EncodeETFTerm(testware.MakeBasicMessageTerm([]byte("good")))
+	good, _ := testutil.EncodeETFTerm(testutil.MakeBasicMessageTerm([]byte("good")))
 	os.WriteFile(filepath.Join(dir, "good.segment"), good, 0644)
 	// A corrupt segment file (no valid ETF).
 	os.WriteFile(filepath.Join(dir, "bad.segment"), []byte{0x01, 0x02}, 0644)

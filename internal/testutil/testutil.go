@@ -1,4 +1,4 @@
-package testware
+package testutil
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/DeedleFake/etf"
-	"github.com/sassoftware/argus/internal/rabbitmq"
+	"github.com/sassoftware/argus/internal/broker"
 )
 
 // EncodeETFTerm serialises an ETF value to a byte slice using the same encoding
@@ -68,10 +68,10 @@ func MakeBasicMessageTerm(body []byte) etf.Tuple {
 // TestHealthServer creates a test server that routes the three management API
 // endpoints used by EvaluateQueueHealth.
 func TestHealthServer(
-	nodes []rabbitmq.Node,
-	queue *rabbitmq.Queue,
+	nodes []broker.RabbitNode,
+	queue *broker.RabbitQueue,
 	queueStatus int, // HTTP status for the specific-queue endpoint; 0 means use queue value
-	allQueues []rabbitmq.Queue,
+	allQueues []broker.RabbitQueue,
 ) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := EffectivePath(r)

@@ -1,4 +1,4 @@
-package actions
+package recovery
 
 import (
 	"bytes"
@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/sassoftware/argus/internal/util"
 )
 
 // testWALPath is the shared WAL fixture used by all integration tests.
@@ -396,7 +394,7 @@ func TestCarveWALMessages_EmptyDir_ReturnsEmpty(t *testing.T) {
 func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 	// Set up a WAL backup dir containing the fixture WAL.
 	walBackupDir := t.TempDir()
-	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
+	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -412,7 +410,7 @@ func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 
 func TestCarveWALMessages_UnknownUID_ReturnsEmpty(t *testing.T) {
 	walBackupDir := t.TempDir()
-	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
+	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 

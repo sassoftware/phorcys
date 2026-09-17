@@ -1,5 +1,7 @@
 package runtime
 
+import "os"
+
 const (
 	EnvVarAMQPURL    = "ARGUS_AMQP_URL"
 	EnvVarMgmtURL    = "ARGUS_MGMT_URL"
@@ -24,4 +26,13 @@ type Config struct {
 	BackupBaseDir string
 	// Number of concurrent health-check workers
 	WorkerCount int
+}
+
+// GetEnv returns the value of the environment variable named by key, or
+// fallback if the variable is unset or empty.
+func GetEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

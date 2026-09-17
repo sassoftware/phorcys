@@ -1,4 +1,4 @@
-package actions
+package recovery
 
 import (
 	"os"
@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/sassoftware/argus/internal/util"
 )
 
 // ---------------------------------------------------------------------------
@@ -148,7 +146,7 @@ func TestBackupWALFiles_SkipsNonWALFiles(t *testing.T) {
 func TestBackupWALFiles_CopiesWALWithMatchingUID(t *testing.T) {
 	// Use the fixture WAL which contains records for fixtureUID2.
 	walDir := t.TempDir()
-	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")); err != nil {
+	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -167,7 +165,7 @@ func TestBackupWALFiles_CopiesWALWithMatchingUID(t *testing.T) {
 
 func TestBackupWALFiles_SkipsWALWithNoMatchingUID(t *testing.T) {
 	walDir := t.TempDir()
-	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")); err != nil {
+	if err := copyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 

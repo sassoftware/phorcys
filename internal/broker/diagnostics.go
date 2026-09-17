@@ -1,4 +1,4 @@
-package manager
+package broker
 
 import (
 	"bytes"
@@ -11,8 +11,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/sassoftware/argus/internal/rabbitmq"
 )
 
 type QueueHealth string
@@ -187,7 +185,7 @@ func (dm *DiagnosticsManager) newRequest(ctx context.Context, method, endpoint s
 	return req, nil
 }
 
-func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]rabbitmq.Node, error) {
+func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, error) {
 	req, err := dm.newRequest(ctx, "GET", "/api/nodes")
 	if err != nil {
 		return nil, err
@@ -203,14 +201,14 @@ func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]rabbitmq.Node, 
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var nodes []rabbitmq.Node
+	var nodes []RabbitNode
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
 		return nil, err
 	}
 	return nodes, nil
 }
 
-func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]rabbitmq.Queue, error) {
+func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]RabbitQueue, error) {
 	req, err := dm.newRequest(ctx, "GET", "/api/queues")
 	if err != nil {
 		return nil, err
@@ -226,7 +224,7 @@ func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]rabbitmq.Qu
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var queues []rabbitmq.Queue
+	var queues []RabbitQueue
 	if err := json.NewDecoder(resp.Body).Decode(&queues); err != nil {
 		return nil, err
 	}
@@ -234,7 +232,7 @@ func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]rabbitmq.Qu
 }
 
 // fetchSpecificQueue targets one precise endpoint and safely handles internal 500 crashes
-func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, queueName string) (*rabbitmq.Queue, bool, error) {
+func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, queueName string) (*RabbitQueue, bool, error) {
 	// Virtual hosts must be URL encoded safely (e.g., "/" becomes "%2F")
 	escapedVHost := url.PathEscape(vhost)
 	escapedQueue := url.PathEscape(queueName)
@@ -261,7 +259,7 @@ func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, que
 		return nil, false, fmt.Errorf("api error code %d: %s", resp.StatusCode, string(body))
 	}
 
-	var queue rabbitmq.Queue
+	var queue RabbitQueue
 	if err := json.NewDecoder(resp.Body).Decode(&queue); err != nil {
 		return nil, false, err
 	}

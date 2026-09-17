@@ -1,18 +1,12 @@
-package util
+package recovery
 
 import (
 	"io"
 	"os"
 )
 
-func GetEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-func CopyFile(src, dst string) error {
+// copyFile copies the contents of src to dst, creating or truncating dst as needed.
+func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
