@@ -1,12 +1,15 @@
-package main
+package actions
 
 import (
 	"bytes"
 	"encoding/binary"
 	"hash/adler32"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sassoftware/argus/internal/util"
 )
 
 // testWALPath is the shared WAL fixture used by all integration tests.
@@ -363,6 +366,75 @@ func TestCarveFromBytes_ContentTuple_ExtractsPayload(t *testing.T) {
 	}
 	if string(got[0]) != string(payload) {
 		t.Errorf("payload = %q, want %q", got[0], payload)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CarveWALMessages
+// ---------------------------------------------------------------------------
+
+func TestCarveWALMessages_AbsentDir_ReturnsNilNoError(t *testing.T) {
+	payloads, err := CarveWALMessages("/no/such/wal/backup", "any-uid")
+	if err != nil {
+		t.Fatalf("expected no error for absent dir, got: %v", err)
+	}
+	if len(payloads) != 0 {
+		t.Errorf("expected 0 payloads, got %d", len(payloads))
+	}
+}
+
+func TestCarveWALMessages_EmptyDir_ReturnsEmpty(t *testing.T) {
+	payloads, err := CarveWALMessages(t.TempDir(), "any-uid")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(payloads) != 0 {
+		t.Errorf("expected 0 payloads from empty dir, got %d", len(payloads))
+	}
+}
+
+func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
+	// Set up a WAL backup dir containing the fixture WAL.
+	walBackupDir := t.TempDir()
+	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	payloads, err := CarveWALMessages(walBackupDir, fixtureUID2)
+	if err != nil {
+		t.Fatalf("CarveWALMessages: %v", err)
+	}
+	if len(payloads) == 0 {
+		t.Fatal("expected payloads for fixture UID2, got none")
+	}
+	t.Logf("CarveWALMessages extracted %d payloads for %q", len(payloads), fixtureUID2)
+}
+
+func TestCarveWALMessages_UnknownUID_ReturnsEmpty(t *testing.T) {
+	walBackupDir := t.TempDir()
+	if err := util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	payloads, err := CarveWALMessages(walBackupDir, "nonexistent-uid")
+	if err != nil {
+		t.Fatalf("CarveWALMessages: %v", err)
+	}
+	if len(payloads) != 0 {
+		t.Errorf("expected 0 payloads for unknown UID, got %d", len(payloads))
+	}
+}
+
+func TestCarveWALMessages_SkipsNonWALFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a wal"), 0644)
+
+	payloads, err := CarveWALMessages(dir, fixtureUID2)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(payloads) != 0 {
+		t.Errorf("expected 0 payloads (non-WAL files ignored), got %d", len(payloads))
 	}
 }
 

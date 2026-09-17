@@ -1,4 +1,4 @@
-package main
+package manager
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/sassoftware/argus/internal/testware"
 )
 
 // ---------------------------------------------------------------------------
@@ -128,7 +130,7 @@ func TestDeleteOrForceEvict_FallsBackToErlangWhenHTTPFails(t *testing.T) {
 func TestDeleteOrForceEvict_URLEncodesVhostAndQueue(t *testing.T) {
 	var receivedPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedPath = effectivePath(r)
+		receivedPath = testware.EffectivePath(r)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()

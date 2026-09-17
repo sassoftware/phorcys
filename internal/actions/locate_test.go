@@ -1,4 +1,4 @@
-package main
+package actions
 
 import (
 	"fmt"
@@ -102,12 +102,9 @@ func TestExtractQueueMetadata_EmptyBytes(t *testing.T) {
 	}
 }
 
-
 // ---------------------------------------------------------------------------
 // ScanAllQuorumDirectories
 // ---------------------------------------------------------------------------
-
-
 
 func TestScanAllQuorumDirectories_MultipleQueues(t *testing.T) {
 	base := t.TempDir()

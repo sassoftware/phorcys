@@ -1,4 +1,4 @@
-module gitlab.sas.com/dockerpkg/dkrrabbitmq/argus
+module github.com/sassoftware/argus
 
 go 1.26.2
 

@@ -1,2 +1,6 @@
+github.com/DeedleFake/etf v0.0.0-20250818194526-023937b5970e h1:4nmS17q152IglvLUo4rrtk2f8iCPypA9GSuzzFN1G0o=
 github.com/DeedleFake/etf v0.0.0-20250818194526-023937b5970e/go.mod h1:BZQO3V9AXn7x3ocRxCo84FMZM6TKWidhH9i5u2alp7o=
+github.com/rabbitmq/amqp091-go v1.10.0 h1:STpn5XsHlHGcecLmMFCtg7mqq0RnD+zFr4uzukfVhBw=
 github.com/rabbitmq/amqp091-go v1.10.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
+go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
+go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=

@@ -1,4 +1,4 @@
-package main
+package actions
 
 import (
 	"bytes"
@@ -351,7 +351,7 @@ func carveFromBytes(data []byte) (payloads [][]byte) {
 		cur := abs + markerLen
 
 		var skipErr error
-		for field := 0; field < 4; field++ {
+		for range 4 {
 			cur, skipErr = skipETFValue(data, cur)
 			if skipErr != nil {
 				break

@@ -1,13 +1,18 @@
-package main
+package monitor
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sassoftware/argus/internal/actions"
+	"github.com/sassoftware/argus/internal/manager"
+	"github.com/sassoftware/argus/internal/runtime"
 )
 
 const logScannerQueueName = "argus.logs.health.scanner"
@@ -28,8 +33,8 @@ type TrackedQueue struct {
 // error signatures in log lines, and triggers the recovery pipeline when warranted.
 type LogMonitorWorker struct {
 	amqpConn      *amqp.Connection
-	diagnostics   *DiagnosticsManager
-	cfg           Config
+	diagnostics   *manager.DiagnosticsManager
+	cfg           runtime.Config
 	quorumList    []TrackedQueue
 	registryLock  sync.RWMutex
 	pendingChecks sync.Map
@@ -38,7 +43,7 @@ type LogMonitorWorker struct {
 }
 
 // NewLogMonitorWorker constructs a LogMonitorWorker wired to the provided connection and config.
-func NewLogMonitorWorker(conn *amqp.Connection, dm *DiagnosticsManager, cfg Config, concurrentWorkers int) *LogMonitorWorker {
+func NewLogMonitorWorker(conn *amqp.Connection, dm *manager.DiagnosticsManager, cfg runtime.Config, concurrentWorkers int) *LogMonitorWorker {
 	return &LogMonitorWorker{
 		amqpConn:    conn,
 		diagnostics: dm,
@@ -79,7 +84,7 @@ func (lm *LogMonitorWorker) Start(ctx context.Context) error {
 
 // syncInventory fetches all queues from the management API and caches quorum queue names.
 func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
-	allQueues, err := lm.diagnostics.fetchAllQueues(ctx)
+	allQueues, err := lm.diagnostics.FetchAllQueues(ctx)
 	if err != nil {
 		return err
 	}
@@ -193,7 +198,7 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 			}
 
 			switch health {
-			case HealthUnrecoverable:
+			case manager.HealthUnrecoverable:
 				log.Printf("[Worker #%d] CRITICAL: %s is unrecoverable — initiating recovery pipeline", id, key)
 				func() {
 					defer func() {
@@ -207,7 +212,7 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 						log.Printf("[Worker #%d] Recovery pipeline completed for %s", id, key)
 					}
 				}()
-			case HealthTransient:
+			case manager.HealthTransient:
 				log.Printf("[Worker #%d] Queue %s is transiently down — monitoring, no action taken", id, key)
 			default:
 				log.Printf("[Worker #%d] Queue %s is healthy (%v) — no action required", id, key, health)
@@ -216,4 +221,84 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 			lm.pendingChecks.Delete(key)
 		}
 	}
+}
+
+// runRecoveryPipeline executes the full automated recovery for a confirmed unrecoverable queue:
+//  1. Locate the quorum queue's data directory on disk
+//  2. Back up segment files to a timestamped archive folder
+//  3. Back up WAL files that contain records for this queue (only if any exist)
+//  4. Delete the corrupted queue from the broker
+//  5. Carve recoverable payloads from backed-up segment files
+//  6. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
+//  7. Republish all payloads — segments first, then WAL — to preserve ordering
+func runRecoveryPipeline(ctx context.Context, cfg runtime.Config, dm *manager.DiagnosticsManager, vhost, queueName string) error {
+	log.Printf("[Recovery] Starting pipeline for queue %s/%s", vhost, queueName)
+
+	// Phase 1: Locate the queue's Raft data directory.
+	// The directory basename IS the Ra UID used to identify this queue's records in the WAL.
+	queueDir, err := actions.FindQueueDirectory(cfg.QuorumBasePath, vhost, queueName)
+	if err != nil {
+		return fmt.Errorf("locate phase: %w", err)
+	}
+	queueUID := filepath.Base(queueDir)
+	log.Printf("[Recovery] Located quorum data at: %s (UID: %s)", queueDir, queueUID)
+
+	// Phase 2: Backup segment files before any destructive operations.
+	backupDir, err := actions.BackupQueueData(queueDir, cfg.BackupBaseDir, vhost, queueName)
+	if err != nil {
+		return fmt.Errorf("backup phase: %w", err)
+	}
+	log.Printf("[Recovery] Segment data backed up to: %s", backupDir)
+
+	// Phase 3: Backup WAL files — but only those that actually contain records for
+	// this queue's UID. The WAL is shared across all quorum queues on the node.
+	walDir := cfg.QuorumBasePath
+	walBackupDir := filepath.Join(backupDir, "wal")
+	walsBacked, err := actions.BackupWALFiles(walDir, walBackupDir, queueUID)
+	if err != nil {
+		log.Printf("[Recovery] WARNING: WAL backup failed (non-fatal): %v", err)
+	} else if walsBacked > 0 {
+		log.Printf("[Recovery] Backed up %d WAL file(s) containing records for UID %s", walsBacked, queueUID)
+	} else {
+		log.Printf("[Recovery] No WAL records found for UID %s — skipping WAL backup", queueUID)
+	}
+
+	// Phase 4: Delete the corrupted queue from the broker.
+	if err := dm.DeleteOrForceEvict(ctx, vhost, queueName); err != nil {
+		return fmt.Errorf("delete phase: %w", err)
+	}
+	log.Printf("[Recovery] Queue %s deleted from broker", queueName)
+
+	// Phase 5: Carve messages from backed-up segment files.
+	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
+	// in the main backup dir have been separated into the wal/ subdirectory so
+	// this call only processes .segment files here.
+	segPayloads, err := actions.CarveMessagesFromDir(backupDir)
+	if err != nil {
+		return fmt.Errorf("segment carve phase: %w", err)
+	}
+	log.Printf("[Recovery] Extracted %d payload(s) from segment backup", len(segPayloads))
+
+	// Phase 6: Carve messages from backed-up WAL files, filtered to this queue's UID.
+	walPayloads, err := actions.CarveWALMessages(walBackupDir, queueUID)
+	if err != nil {
+		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
+	}
+	log.Printf("[Recovery] Extracted %d payload(s) from WAL backup", len(walPayloads))
+
+	// Segments are written before WAL entries are flushed, so publish segments first.
+	payloads := append(segPayloads, walPayloads...)
+	if len(payloads) == 0 {
+		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", queueName)
+		return nil
+	}
+
+	// Phase 7: Republish to default exchange; routing key = queue name.
+	if err := actions.RepublishMessages(ctx, cfg.AMQPURL, queueName, payloads); err != nil {
+		return fmt.Errorf("republish phase: %w", err)
+	}
+	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
+		len(payloads), queueName, len(segPayloads), len(walPayloads))
+
+	return nil
 }

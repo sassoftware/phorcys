@@ -1,4 +1,4 @@
-package main
+package monitor
 
 import (
 	"context"
@@ -8,6 +8,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sassoftware/argus/internal/manager"
+	"github.com/sassoftware/argus/internal/rabbitmq"
+	"github.com/sassoftware/argus/internal/runtime"
+	"github.com/sassoftware/argus/internal/testware"
 )
 
 // ---------------------------------------------------------------------------
@@ -135,7 +140,7 @@ func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSyncInventory_OnlyQuorumQueuesCached(t *testing.T) {
-	queues := []RabbitQueue{
+	queues := []rabbitmq.Queue{
 		{Name: "q1", VHost: "/", Type: "quorum"},
 		{Name: "q2", VHost: "/", Type: "classic"},
 		{Name: "q3", VHost: "vh2", Type: "quorum"},
@@ -146,7 +151,7 @@ func TestSyncInventory_OnlyQuorumQueuesCached(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
+	dm := &manager.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
 	if err := lm.syncInventory(context.Background()); err != nil {
@@ -173,7 +178,7 @@ func TestSyncInventory_EmptyListOnAPIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
+	dm := &manager.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
 	if err := lm.syncInventory(context.Background()); err == nil {
@@ -183,9 +188,9 @@ func TestSyncInventory_EmptyListOnAPIError(t *testing.T) {
 
 func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	// First sync
-	queues1 := []RabbitQueue{{Name: "old.q", VHost: "/", Type: "quorum"}}
+	queues1 := []rabbitmq.Queue{{Name: "old.q", VHost: "/", Type: "quorum"}}
 	// Second sync returns a different set
-	queues2 := []RabbitQueue{{Name: "new.q", VHost: "/", Type: "quorum"}}
+	queues2 := []rabbitmq.Queue{{Name: "new.q", VHost: "/", Type: "quorum"}}
 
 	callN := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +203,7 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	dm := &DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
+	dm := &manager.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
 
 	lm.syncInventory(context.Background())
@@ -218,18 +223,18 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
-	nodes := []RabbitNode{{Name: "rabbit@n1", Running: true}}
-	queue := &RabbitQueue{
+	nodes := []rabbitmq.Node{{Name: "rabbit@n1", Running: true}}
+	queue := &rabbitmq.Queue{
 		Name: "ok.q", VHost: "/", Type: "quorum",
 		Status: "running", Leader: "rabbit@n1", Node: "rabbit@n1",
 	}
-	server := testHealthServer(nodes, queue, 0, nil)
+	server := testware.TestHealthServer(nodes, queue, 0, nil)
 	defer server.Close()
 
 	dm := newTestManager(server)
 	lm := &LogMonitorWorker{
 		diagnostics:   dm,
-		cfg:           Config{AMQPURL: "amqp://invalid/"},
+		cfg:           runtime.Config{AMQPURL: "amqp://invalid/"},
 		jobChannel:    make(chan QueueJob, 1),
 		pendingChecks: sync.Map{},
 	}
@@ -252,4 +257,13 @@ func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Error("pendingChecks key was not deleted after a Green health result")
+}
+
+func newTestManager(server *httptest.Server) *manager.DiagnosticsManager {
+	return &manager.DiagnosticsManager{
+		APIURL:   server.URL,
+		Username: "test",
+		Password: "test",
+		Client:   server.Client(),
+	}
 }

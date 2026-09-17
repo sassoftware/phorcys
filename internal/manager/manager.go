@@ -1,4 +1,4 @@
-package main
+package manager
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/sassoftware/argus/internal/rabbitmq"
 )
 
 type QueueHealth string
@@ -20,25 +22,6 @@ const (
 	HealthTransient     QueueHealth = "TRANSIENT_DOWN" // Throttled or recovering; do not delete!
 	HealthUnrecoverable QueueHealth = "UNRECOVERABLE"  // Isolated Raft failure; safe to run recovery
 )
-
-// RabbitNode represents the health metrics returned by /api/nodes
-type RabbitNode struct {
-	Name          string `json:"name"`
-	Running       bool   `json:"running"`
-	MemAlarm      bool   `json:"mem_alarm"`
-	DiskFreeAlarm bool   `json:"disk_free_alarm"`
-}
-
-// RabbitQueue represents the state metrics returned by /api/queues
-type RabbitQueue struct {
-	Name    string   `json:"name"`
-	VHost   string   `json:"vhost"`
-	Type    string   `json:"type"`
-	Status  string   `json:"status"`
-	Leader  string   `json:"leader"`  // Specific to Quorum/Streams (Raft leader)
-	Node    string   `json:"node"`    // Primary node hosting the process coordinator
-	Members []string `json:"members"` // Raft cluster cluster nodes for this queue
-}
 
 type DiagnosticsManager struct {
 	APIURL   string // e.g., "http://localhost:15672"
@@ -107,7 +90,7 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 
 		// Let's verify if neighbor quorum queues on the same node are running fine.
 		// Fetching the global queue list lets us check isolated health comparisons.
-		allQueues, err := dm.fetchAllQueues(ctx)
+		allQueues, err := dm.FetchAllQueues(ctx)
 		if err == nil {
 			neighborsDownCount := 0
 			neighborsTotal := 0
@@ -148,9 +131,9 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 // HTTP API HELPER METHODS
 // ============================================================================
 
-// resolveQuorumBasePath fetches the first node name from the management API and derives the
+// ResolveQuorumBasePath fetches the first node name from the management API and derives the
 // standard quorum storage path from it. Falls back to rabbit@localhost if the API is unreachable.
-func (dm *DiagnosticsManager) resolveQuorumBasePath(ctx context.Context) string {
+func (dm *DiagnosticsManager) ResolveQuorumBasePath(ctx context.Context) string {
 	const baseMnesia = "/var/lib/rabbitmq/mnesia"
 	nodes, err := dm.fetchNodes(ctx)
 	if err != nil || len(nodes) == 0 {
@@ -204,7 +187,7 @@ func (dm *DiagnosticsManager) newRequest(ctx context.Context, method, endpoint s
 	return req, nil
 }
 
-func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, error) {
+func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]rabbitmq.Node, error) {
 	req, err := dm.newRequest(ctx, "GET", "/api/nodes")
 	if err != nil {
 		return nil, err
@@ -220,14 +203,14 @@ func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, err
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var nodes []RabbitNode
+	var nodes []rabbitmq.Node
 	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
 		return nil, err
 	}
 	return nodes, nil
 }
 
-func (dm *DiagnosticsManager) fetchAllQueues(ctx context.Context) ([]RabbitQueue, error) {
+func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]rabbitmq.Queue, error) {
 	req, err := dm.newRequest(ctx, "GET", "/api/queues")
 	if err != nil {
 		return nil, err
@@ -243,7 +226,7 @@ func (dm *DiagnosticsManager) fetchAllQueues(ctx context.Context) ([]RabbitQueue
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var queues []RabbitQueue
+	var queues []rabbitmq.Queue
 	if err := json.NewDecoder(resp.Body).Decode(&queues); err != nil {
 		return nil, err
 	}
@@ -251,7 +234,7 @@ func (dm *DiagnosticsManager) fetchAllQueues(ctx context.Context) ([]RabbitQueue
 }
 
 // fetchSpecificQueue targets one precise endpoint and safely handles internal 500 crashes
-func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, queueName string) (*RabbitQueue, bool, error) {
+func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, queueName string) (*rabbitmq.Queue, bool, error) {
 	// Virtual hosts must be URL encoded safely (e.g., "/" becomes "%2F")
 	escapedVHost := url.PathEscape(vhost)
 	escapedQueue := url.PathEscape(queueName)
@@ -278,7 +261,7 @@ func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, que
 		return nil, false, fmt.Errorf("api error code %d: %s", resp.StatusCode, string(body))
 	}
 
-	var queue RabbitQueue
+	var queue rabbitmq.Queue
 	if err := json.NewDecoder(resp.Body).Decode(&queue); err != nil {
 		return nil, false, err
 	}
