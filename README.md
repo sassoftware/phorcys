@@ -2,7 +2,10 @@
 
 ![Argus watchdog for RabbitMQ](logo.png)
 
-Argus is a self-healing watchdog for RabbitMQ **quorum queues**. It monitors the broker's internal log exchange for Raft/quorum error signatures, evaluates whether a flagged queue is truly unrecoverable, and — when it is — automatically backs up the on-disk data, deletes the corrupted queue, carves recoverable messages from the backup files, and republishes them to the original queue.
+Argus is a self-healing watchdog for RabbitMQ **quorum queues**. It monitors the broker's internal log exchange for 
+Raft/quorum error signatures, evaluates whether a flagged queue is truly unrecoverable, and — when it is — automatically
+backs up the on-disk data, deletes the corrupted queue, carves recoverable messages from the backup files, and 
+republishes them to the original queue.
 
 ## How it works
 
@@ -30,24 +33,24 @@ amq.rabbitmq.log (warning/error)
 
 ### Health classification
 
-| State | Condition | Action |
-| --- | --- | --- |
-| `GREEN` | Queue has a leader and is running | None |
-| `TRANSIENT_DOWN` | Memory/disk alarm, host node down, or all neighbors also down | Wait — do not delete |
-| `UNRECOVERABLE` | Management API returns 500 for this queue, **or** no Raft leader while neighbors are healthy | Run recovery pipeline |
+| State            | Condition                                                                                    | Action                |
+|------------------|----------------------------------------------------------------------------------------------|-----------------------|
+| `GREEN`          | Queue has a leader and is running                                                            | None                  |
+| `TRANSIENT_DOWN` | Memory/disk alarm, host node down, or all neighbors also down                                | Wait — do not delete  |
+| `UNRECOVERABLE`  | Management API returns 500 for this queue, **or** no Raft leader while neighbors are healthy | Run recovery pipeline |
 
 ## Configuration
 
 All settings are provided via environment variables with sensible defaults for local development.
 
-| Variable | Default | Description |
-| --- | --- | --- |
-| `ARGUS_AMQP_URL` | `amqp://guest:guest@localhost:5672/` | AMQP broker URL |
-| `ARGUS_MGMT_URL` | `http://localhost:15672` | Management API base URL |
-| `ARGUS_MGMT_USER` | `guest` | Management API username |
-| `ARGUS_MGMT_PASS` | `guest` | Management API password |
-| `ARGUS_QUORUM_PATH` | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk |
-| `ARGUS_BACKUP_DIR` | `/var/lib/rabbitmq/argus-backups` | Directory where queue data is backed up before deletion |
+| Variable            | Default                                                             | Description                                             |
+|---------------------|---------------------------------------------------------------------|---------------------------------------------------------|
+| `ARGUS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/`                                | AMQP broker URL                                         |
+| `ARGUS_MGMT_URL`    | `http://localhost:15672`                                            | Management API base URL                                 |
+| `ARGUS_MGMT_USER`   | `guest`                                                             | Management API username                                 |
+| `ARGUS_MGMT_PASS`   | `guest`                                                             | Management API password                                 |
+| `ARGUS_QUORUM_PATH` | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk      |
+| `ARGUS_BACKUP_DIR`  | `/var/lib/rabbitmq/argus-backups`                                   | Directory where queue data is backed up before deletion |
 
 ## Building
 
