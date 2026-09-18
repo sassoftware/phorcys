@@ -87,14 +87,30 @@ Argus runs until it receives `SIGINT` or `SIGTERM`.
 
 ```text
 argus/
-├── main.go         # Config, entry point, recovery pipeline orchestration
-├── monitor.go      # Log monitor — subscribes to amq.rabbitmq.log
-├── manager.go      # DiagnosticsManager — RabbitMQ Management API client
-├── health.go       # EvaluateQueueHealth — three-gate health classification
-├── locate.go       # Find a queue's Raft data directory by decoding ETF meta files
-├── carve.go        # Extract AMQP payloads from .segment / .wal files
-├── delete.go       # HTTP queue deletion with rabbitmqctl fallback
-└── republish.go    # Republish recovered payloads via AMQP
+├── main.go                 # Entry point
+├── internal/
+│   ├── runtime/
+│   │   └── config.go       # Config loading
+│   ├── monitor/
+│   │   └── monitor.go      # Subscribes to amq.rabbitmq.log
+│   ├── broker/
+│   │   ├── diagnostics.go  # Management API client
+│   │   ├── delete.go       # Queue deletion + rabbitmqctl fallback
+│   │   └── types.go        # API models, EvaluateQueueHealth
+│   ├── recovery/
+│   │   ├── pipeline.go     # Orchestrates the recovery steps
+│   │   ├── locate.go       # Find queue's Raft data dir via ETF
+│   │   ├── backup.go       # Copy WAL files for a queue's UID
+│   │   ├── carve.go        # Extract AMQP payloads from files
+│   │   ├── etfscan.go      # Low-level ETF tag scanning
+│   │   ├── wal.go          # Ra WAL file record parsing
+│   │   ├── copyfile.go     # File copy helper
+│   │   ├── republish.go    # Republish payloads via AMQP
+│   │   └── types.go        # Shared recovery data types
+│   └── testutil/
+│       └── testutil.go     # Shared test helpers
+└── tests/
+    └── integration/        # Docker-based e2e tests
 ```
 
 ## Limitations & caveats
@@ -109,15 +125,6 @@ argus/
   Original headers, content-type, and routing metadata are not reconstructed.
 - **Duplicate delivery is possible.** If a message was already acknowledged
   before the crash, carving may recover and republish it again.
-
-## Future
-
-- Eliminate the limitation where original headers, content-type and routing
-  metadata are not recovered.
-- Ensure only one node in the RabbitMQ cluster attempts recovery of a queue.
-- Manual mode to specify recovery of a specific queue.
-- Remove orphaned queues.
-- Possible classic queue support.
 
 ---
 
