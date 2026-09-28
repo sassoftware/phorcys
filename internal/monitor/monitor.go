@@ -11,12 +11,12 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/sassoftware/argus/internal/broker"
-	"github.com/sassoftware/argus/internal/recovery"
-	"github.com/sassoftware/argus/internal/runtime"
+	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/recovery"
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
-const logScannerQueueName = "argus.logs.health.scanner"
+const logScannerQueueName = "phorcys.logs.health.scanner"
 
 // QueueJob is a single health-check work item dispatched to the worker pool.
 type QueueJob struct {

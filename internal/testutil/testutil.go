@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/sassoftware/argus/internal/broker"
+	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/stretchr/testify/require"
 )
 

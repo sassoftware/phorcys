@@ -5,16 +5,16 @@ services:
       dockerfile: tests/integration/Dockerfile.rabbitmq
       context: ../../
     platform: linux/amd64
-    image: tests_argus:latest
+    image: tests_phorcys:latest
     ports:
       - "5672:5672"
       - "5671:5671"
       - "15672:15672"
       - "15671:15671"
     networks:
-      - argustest
+      - phorcystest
     volumes:
       []
     hostname: rabbitmq
 networks:
-  argustest:
+  phorcystest:

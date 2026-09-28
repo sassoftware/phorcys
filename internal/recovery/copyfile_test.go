@@ -21,7 +21,7 @@ func TestCopyFile_CopiesContent(t *testing.T) {
 	src := filepath.Join(dir, "src.dat")
 	dst := filepath.Join(dir, "dst.dat")
 
-	content := []byte("hello argus 1234")
+	content := []byte("hello phorcys 1234")
 	require.NoError(t, os.WriteFile(src, content, 0600), "write src")
 
 	require.NoError(t, copyFile(src, dst), "copyFile")

@@ -14,15 +14,15 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestGetEnv_ReturnsFallbackWhenUnset(t *testing.T) {
-	got := GetEnv("__ARGUS_NONEXISTENT_VAR_XYZ__", "fallback")
+	got := GetEnv("__PHORCYS_NONEXISTENT_VAR_XYZ__", "fallback")
 	if got != "fallback" {
 		assert.Equal(t, "fallback", got, "got %q, want %q", got, "fallback")
 	}
 }
 
 func TestGetEnv_ReturnsEnvValueWhenSet(t *testing.T) {
-	t.Setenv("__ARGUS_TEST_VAR__", "custom_value")
-	got := GetEnv("__ARGUS_TEST_VAR__", "fallback")
+	t.Setenv("__PHORCYS_TEST_VAR__", "custom_value")
+	got := GetEnv("__PHORCYS_TEST_VAR__", "fallback")
 	if got != "custom_value" {
 		assert.Equal(t, "custom_value", got, "got %q, want %q", got, "custom_value")
 	}
@@ -30,8 +30,8 @@ func TestGetEnv_ReturnsEnvValueWhenSet(t *testing.T) {
 
 func TestGetEnv_EmptyEnvValueUsesFallback(t *testing.T) {
 	// When the env var is set to empty string, the fallback should be used.
-	t.Setenv("__ARGUS_EMPTY_VAR__", "")
-	got := GetEnv("__ARGUS_EMPTY_VAR__", "fallback")
+	t.Setenv("__PHORCYS_EMPTY_VAR__", "")
+	got := GetEnv("__PHORCYS_EMPTY_VAR__", "fallback")
 	if got != "fallback" {
 		assert.Equal(t, "fallback", got, "expected fallback for empty env var, got %q", got)
 	}

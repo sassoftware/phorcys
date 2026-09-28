@@ -9,8 +9,8 @@ import (
 	"log"
 	"path/filepath"
 
-	"github.com/sassoftware/argus/internal/broker"
-	"github.com/sassoftware/argus/internal/runtime"
+	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 // Run executes the full automated recovery for a confirmed unrecoverable queue:

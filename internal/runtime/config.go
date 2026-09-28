@@ -6,15 +6,15 @@ package runtime
 import "os"
 
 const (
-	EnvVarAMQPURL    = "ARGUS_AMQP_URL"
-	EnvVarMgmtURL    = "ARGUS_MGMT_URL"
-	EnvVarMgmtUser   = "ARGUS_MGMT_USER"
-	EnvVarMgmtPass   = "ARGUS_MGMT_PASS" //nolint:gosec
-	EnvVarBackupDir  = "ARGUS_BACKUP_DIR"
-	EnvVarQuorumPath = "ARGUS_QUORUM_PATH"
+	EnvVarAMQPURL    = "PHORCYS_AMQP_URL"
+	EnvVarMgmtURL    = "PHORCYS_MGMT_URL"
+	EnvVarMgmtUser   = "PHORCYS_MGMT_USER"
+	EnvVarMgmtPass   = "PHORCYS_MGMT_PASS" //nolint:gosec
+	EnvVarBackupDir  = "PHORCYS_BACKUP_DIR"
+	EnvVarQuorumPath = "PHORCYS_QUORUM_PATH"
 )
 
-// Config holds all runtime configuration for Argus.
+// Config holds all runtime configuration for Phorcys.
 type Config struct {
 	// AMQP broker connection URL
 	AMQPURL string

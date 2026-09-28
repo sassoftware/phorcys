@@ -109,7 +109,7 @@ func main() {
 
 // CorruptQuorumQueueData overwrites the header bytes of each quorum queue .segment file with random
 // garbage. This simulates partial storage corruption: ra validates the header on open and refuses to
-// load the file (making the queue unrecoverable), while argus's raw ETF byte-scanner can still locate
+// load the file (making the queue unrecoverable), while phorcys's raw ETF byte-scanner can still locate
 // message payloads deeper in the file body.
 func CorruptQuorumQueueData(dataDir string) error {
 	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
@@ -136,7 +136,7 @@ func CorruptQuorumQueueData(dataDir string) error {
 			}
 
 			// Overwrite only the header so ra refuses to load the file, but message payloads
-			// deeper in the file body remain intact for argus's byte-scanner.
+			// deeper in the file body remain intact for phorcys's byte-scanner.
 			if _, err := file.WriteAt(garbage, 0); err != nil {
 				file.Close()
 				return fmt.Errorf("failed to overwrite data in %s: %w", path, err)
