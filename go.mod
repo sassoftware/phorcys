@@ -1,4 +1,4 @@
-module github.com/sassoftware/argus
+module github.com/sassoftware/phorcys
 
 go 1.26.6
 

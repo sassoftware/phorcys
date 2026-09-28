@@ -12,9 +12,9 @@ import (
 	"syscall"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/sassoftware/argus/internal/broker"
-	"github.com/sassoftware/argus/internal/monitor"
-	"github.com/sassoftware/argus/internal/runtime"
+	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/monitor"
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 		ManagementURL:      runtime.GetEnv(runtime.EnvVarMgmtURL, "http://localhost:15672"),
 		ManagementUser:     runtime.GetEnv(runtime.EnvVarMgmtUser, "guest"),
 		ManagementPassword: runtime.GetEnv(runtime.EnvVarMgmtPass, "guest"),
-		BackupBaseDir:      runtime.GetEnv(runtime.EnvVarBackupDir, "/var/lib/rabbitmq/argus-backups"),
+		BackupBaseDir:      runtime.GetEnv(runtime.EnvVarBackupDir, "/var/lib/rabbitmq/phorcys-backups"),
 		WorkerCount:        3,
 	}
 
@@ -48,10 +48,10 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	log.Println("Argus started — monitoring RabbitMQ log exchange for errors...")
+	log.Println("Phorcys started — monitoring RabbitMQ log exchange for errors...")
 	if err := m.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("FATAL: Monitor exited unexpectedly: %v", err)
 		return
 	}
-	log.Println("Argus shutdown complete.")
+	log.Println("Phorcys shutdown complete.")
 }

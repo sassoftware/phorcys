@@ -10,7 +10,7 @@ until rabbitmqctl status; do
 	sleep 1
 done
 
-./argus &
+./phorcys &
 ./fault-agent &
 
 wait

@@ -1,10 +1,10 @@
-# Argus
+# Phorcys
 
-![Argus watchdog for RabbitMQ](logo.png)
+![Phorcys for RabbitMQ](logo.jpg)
 
-Argus is a self-healing watchdog for RabbitMQ **quorum queues**. It monitors
-the broker's internal log exchange for Raft/quorum error signatures, evaluates
-whether a flagged queue is truly unrecoverable, and — when it is —
+Phorcys is a self-healing recovery service for RabbitMQ **quorum queues**. It
+monitors the broker's internal log exchange for Raft/quorum error signatures,
+evaluates whether a flagged queue is truly unrecoverable, and — when it is —
 automatically backs up the on-disk data, deletes the corrupted queue, carves
 recoverable messages from the backup files, and republishes them to the
 original queue.
@@ -46,35 +46,35 @@ amq.rabbitmq.log (warning/error)
 All settings are provided via environment variables with sensible defaults for
 local development.
 
-| Variable            | Default                                                             | Description                                             |
-|---------------------|---------------------------------------------------------------------|---------------------------------------------------------|
-| `ARGUS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/`                                | AMQP broker URL                                         |
-| `ARGUS_MGMT_URL`    | `http://localhost:15672`                                            | Management API base URL                                 |
-| `ARGUS_MGMT_USER`   | `guest`                                                             | Management API username                                 |
-| `ARGUS_MGMT_PASS`   | `guest`                                                             | Management API password                                 |
-| `ARGUS_QUORUM_PATH` | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk      |
-| `ARGUS_BACKUP_DIR`  | `/var/lib/rabbitmq/argus-backups`                                   | Directory where queue data is backed up before deletion |
+| Variable              | Default                                                             | Description                                             |
+|-----------------------|---------------------------------------------------------------------|---------------------------------------------------------|
+| `PHORCYS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/`                                | AMQP broker URL                                         |
+| `PHORCYS_MGMT_URL`    | `http://localhost:15672`                                            | Management API base URL                                 |
+| `PHORCYS_MGMT_USER`   | `guest`                                                             | Management API username                                 |
+| `PHORCYS_MGMT_PASS`   | `guest`                                                             | Management API password                                 |
+| `PHORCYS_QUORUM_PATH` | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk      |
+| `PHORCYS_BACKUP_DIR`  | `/var/lib/rabbitmq/phorcys-backups`                                 | Directory where queue data is backed up before deletion |
 
 ## Building
 
 ```bash
-go build -o argus .
+go build -o phorcys .
 ```
 
 ## Running
 
 ```bash
-export ARGUS_AMQP_URL="amqp://admin:secret@rabbitmq:5672/"
-export ARGUS_MGMT_URL="http://rabbitmq:15672"
-export ARGUS_MGMT_USER="admin"
-export ARGUS_MGMT_PASS="secret"
-export ARGUS_QUORUM_PATH="/var/lib/rabbitmq/mnesia/rabbit@rabbitmq/quorum/rabbit@rabbitmq"
-export ARGUS_BACKUP_DIR="/data/argus-backups"
+export PHORCYS_AMQP_URL="amqp://admin:secret@rabbitmq:5672/"
+export PHORCYS_MGMT_URL="http://rabbitmq:15672"
+export PHORCYS_MGMT_USER="admin"
+export PHORCYS_MGMT_PASS="secret"
+export PHORCYS_QUORUM_PATH="/var/lib/rabbitmq/mnesia/rabbit@rabbitmq/quorum/rabbit@rabbitmq"
+export PHORCYS_BACKUP_DIR="/data/phorcys-backups"
 
-./argus
+./phorcys
 ```
 
-Argus runs until it receives `SIGINT` or `SIGTERM`.
+Phorcys runs until it receives `SIGINT` or `SIGTERM`.
 
 ## Requirements
 
@@ -86,7 +86,7 @@ Argus runs until it receives `SIGINT` or `SIGTERM`.
 ## Project layout
 
 ```text
-argus/
+phorcys/
 ├── main.go                 # Entry point
 ├── internal/
 │   ├── runtime/
@@ -117,8 +117,8 @@ argus/
 
 - **Best-effort recovery.** The ETF carver scans raw bytes heuristically.
   Messages that span corrupted sectors may not be recoverable.
-- **Single-node access required.** Argus must run on the RabbitMQ node that
-  hosts the quorum queue data. In a multi-node cluster, run one Argus instance
+- **Single-node access required.** Phorcys must run on the RabbitMQ node that
+  hosts the quorum queue data. In a multi-node cluster, run one Phorcys instance
   per node.
 - **AMQP message metadata is not preserved.** Recovered messages are
   republished as `application/octet-stream` with `DeliveryMode=Persistent`.
