@@ -170,33 +170,33 @@ func TestParseWALRecords_EOFSentinelStopsParser(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestParseWALMessagesForQueue_KnownUID2_PayloadCount(t *testing.T) {
-	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
+	messages, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
 	require.NoError(t, err)
 	// The fixture WAL contains 20 000 "payload-data-packet-N" messages for UID2.
-	require.NotEmpty(t, payloads, "expected payloads for fixture UID2, got none")
-	t.Logf("extracted %d payloads for %q", len(payloads), fixtureUID2)
+	require.NotEmpty(t, messages, "expected messages for fixture UID2, got none")
+	t.Logf("extracted %d messages for %q", len(messages), fixtureUID2)
 }
 
 func TestParseWALMessagesForQueue_KnownUID2_PayloadContent(t *testing.T) {
-	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
+	messages, err := ParseWALMessagesForQueue(testWALPath, fixtureUID2)
 	require.NoError(t, err)
-	for i, p := range payloads {
-		assert.Truef(t, strings.HasPrefix(string(p), fixturePayloadPfx), "payload[%d] = %q, expected prefix %q", i, string(p), fixturePayloadPfx)
+	for i, m := range messages {
+		assert.Truef(t, strings.HasPrefix(string(m.Body), fixturePayloadPfx), "payload[%d] = %q, expected prefix %q", i, string(m.Body), fixturePayloadPfx)
 	}
 }
 
 func TestParseWALMessagesForQueue_UnknownUID_ReturnsEmpty(t *testing.T) {
-	payloads, err := ParseWALMessagesForQueue(testWALPath, "nonexistent-uid")
+	messages, err := ParseWALMessagesForQueue(testWALPath, "nonexistent-uid")
 	require.NoError(t, err)
-	require.Empty(t, payloads)
+	require.Empty(t, messages)
 }
 
 func TestParseWALMessagesForQueue_UID1_NoPayloads(t *testing.T) {
 	// UID1 also contains enqueue records in this fixture; verify the carver
 	// runs without error and log the count.
-	payloads, err := ParseWALMessagesForQueue(testWALPath, fixtureUID1)
+	messages, err := ParseWALMessagesForQueue(testWALPath, fixtureUID1)
 	require.NoError(t, err)
-	t.Logf("UID1 (%q) yielded %d payloads", fixtureUID1, len(payloads))
+	t.Logf("UID1 (%q) yielded %d messages", fixtureUID1, len(messages))
 }
 
 // ---------------------------------------------------------------------------
@@ -256,15 +256,15 @@ func TestParseWALRecords_FixtureUID2_AllHaveETFData(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCarveWALMessages_AbsentDir_ReturnsNilNoError(t *testing.T) {
-	payloads, err := CarveWALMessages("/no/such/wal/backup", "any-uid")
+	messages, err := CarveWALMessages("/no/such/wal/backup", "any-uid")
 	require.NoError(t, err)
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 func TestCarveWALMessages_EmptyDir_ReturnsEmpty(t *testing.T) {
-	payloads, err := CarveWALMessages(t.TempDir(), "any-uid")
+	messages, err := CarveWALMessages(t.TempDir(), "any-uid")
 	require.NoError(t, err)
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
@@ -272,19 +272,19 @@ func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 	walBackupDir := t.TempDir()
 	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
-	payloads, err := CarveWALMessages(walBackupDir, fixtureUID2)
+	messages, err := CarveWALMessages(walBackupDir, fixtureUID2)
 	require.NoError(t, err, "CarveWALMessages")
-	require.NotEmpty(t, payloads, "expected payloads for fixture UID2, got none")
-	t.Logf("CarveWALMessages extracted %d payloads for %q", len(payloads), fixtureUID2)
+	require.NotEmpty(t, messages, "expected messages for fixture UID2, got none")
+	t.Logf("CarveWALMessages extracted %d messages for %q", len(messages), fixtureUID2)
 }
 
 func TestCarveWALMessages_UnknownUID_ReturnsEmpty(t *testing.T) {
 	walBackupDir := t.TempDir()
 	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
-	payloads, err := CarveWALMessages(walBackupDir, "nonexistent-uid")
+	messages, err := CarveWALMessages(walBackupDir, "nonexistent-uid")
 	require.NoError(t, err, "CarveWALMessages")
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 func TestCarveWALMessages_SkipsNonWALFiles(t *testing.T) {
@@ -292,9 +292,9 @@ func TestCarveWALMessages_SkipsNonWALFiles(t *testing.T) {
 	err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("not a wal"), 0600)
 	require.NoError(t, err)
 
-	payloads, err := CarveWALMessages(dir, fixtureUID2)
+	messages, err := CarveWALMessages(dir, fixtureUID2)
 	require.NoError(t, err)
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 // ---------------------------------------------------------------------------

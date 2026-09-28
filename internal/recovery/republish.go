@@ -12,9 +12,12 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// RepublishMessages connects to the broker and publishes all payloads to the default exchange
-// using targetQueue as the routing key, so each message is delivered back to the original queue.
-func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, payloads [][]byte) error {
+// RepublishMessages connects to the broker and publishes all recovered messages to the
+// default exchange using targetQueue as the routing key, so each message is delivered
+// back to the original queue. Original properties (headers, content-type, delivery-mode,
+// etc.) recovered from the queue's data files are preserved; DeliveryMode and ContentType
+// fall back to sane defaults when they could not be recovered.
+func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, messages []amqp.Publishing) error {
 	conn, err := amqp.Dial(amqpURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
@@ -41,23 +44,25 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, payload
 		return fmt.Errorf("failed to recreate queue : %w", qErr)
 	}
 
-	for i, payload := range payloads {
+	for i, msg := range messages {
+		if msg.DeliveryMode == 0 {
+			msg.DeliveryMode = amqp.Persistent
+		}
+		if msg.ContentType == "" {
+			msg.ContentType = "application/octet-stream"
+		}
 		err = ch.PublishWithContext(pubCtx,
 			"",          // default exchange
 			targetQueue, // routing key = queue name
 			false,
 			false,
-			amqp.Publishing{
-				ContentType:  "application/octet-stream",
-				Body:         payload,
-				DeliveryMode: amqp.Persistent,
-			},
+			msg,
 		)
 		if err != nil {
 			return fmt.Errorf("failed publishing message %d: %w", i, err)
 		}
 	}
 
-	log.Printf("[Republish] Published %d messages to queue %s", len(payloads), targetQueue)
+	log.Printf("[Republish] Published %d messages to queue %s", len(messages), targetQueue)
 	return nil
 }

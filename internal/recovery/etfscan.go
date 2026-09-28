@@ -7,6 +7,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // ETF tag constants used by the direct content-tuple scanner.
@@ -50,7 +53,19 @@ func init() {
 }
 
 // scanContentTuples scans an in-memory buffer for {content,6,...,[<<payload>>]} tuples
-// and returns all recoverable AMQP message payload binaries it finds.
+// and returns all recoverable AMQP message payload binaries it finds, discarding
+// properties. Kept for callers that only need raw bodies; scanContentMessages
+// returns the same payloads paired with their decoded properties (headers, etc.).
+func scanContentTuples(data []byte) (payloads [][]byte) {
+	for _, m := range scanContentMessages(data) {
+		payloads = append(payloads, m.Body)
+	}
+	return payloads
+}
+
+// scanContentMessages scans an in-memory buffer for {content,6,...,[<<payload>>]} tuples
+// and returns each recoverable payload paired with the message's original basic-properties
+// (including headers), decoded from the tuple's encoded-properties field.
 //
 // RabbitMQ 4.x wraps every message in Erlang map terms that the ETF library cannot decode.
 // We bypass full-term decoding entirely: scan for the literal byte pattern of a 6-arity
@@ -59,7 +74,7 @@ func init() {
 //
 // Shared by CarveMessagesFromFile (reads a .segment/.wal file from disk) and the Ra WAL
 // record carver (operates on an in-memory ETF blob decoded from a WAL entry).
-func scanContentTuples(data []byte) (payloads [][]byte) {
+func scanContentMessages(data []byte) (messages []amqp.Publishing) {
 	idx := 0
 	for idx < len(data) {
 		nearest := -1
@@ -80,23 +95,46 @@ func scanContentTuples(data []byte) (payloads [][]byte) {
 		}
 		cur := abs + markerLen
 
-		// Skip fields 2–5: classId, decoded-props, encoded-props-binary, framing-module.
-		var skipErr error
-		for field := 0; field < 4; field++ {
-			cur, skipErr = skipETFValue(data, cur)
-			if skipErr != nil {
-				break
-			}
-		}
-		if skipErr != nil || cur >= len(data) {
+		// Field 2: classId — skip.
+		var err error
+		cur, err = skipETFValue(data, cur)
+		if err != nil {
 			idx = abs + 1
 			continue
+		}
+		// Field 3: decoded-props — skip (lazily elided, stored as atom 'none').
+		cur, err = skipETFValue(data, cur)
+		if err != nil {
+			idx = abs + 1
+			continue
+		}
+		// Field 4: encoded-props binary — capture so headers can be decoded.
+		var propsBin []byte
+		propsBin, cur, err = extractBinaryField(data, cur)
+		if err != nil {
+			idx = abs + 1
+			continue
+		}
+		// Field 5: framing-module — skip.
+		cur, err = skipETFValue(data, cur)
+		if err != nil || cur >= len(data) {
+			idx = abs + 1
+			continue
+		}
+
+		props, propsErr := decodeBasicProperties(propsBin)
+		if propsErr != nil {
+			log.Printf("[Carve] WARNING: failed to decode message properties, headers may be lost: %v", propsErr)
 		}
 
 		// Field 6: list containing the payload binary.
 		extracted, next, extractErr := extractBinaryList(data, cur)
 		if extractErr == nil {
-			payloads = append(payloads, extracted...)
+			for _, body := range extracted {
+				msg := props
+				msg.Body = body
+				messages = append(messages, msg)
+			}
 		}
 		if next > abs {
 			idx = next
@@ -104,7 +142,32 @@ func scanContentTuples(data []byte) (payloads [][]byte) {
 			idx = abs + 1
 		}
 	}
-	return payloads
+	return messages
+}
+
+// extractBinaryField reads a BINARY_EXT value at data[pos] and returns a copy
+// of its contents. If the value at pos is not a binary, it falls back to
+// skipping the value (returning no bytes) so the scanner can keep advancing.
+func extractBinaryField(data []byte, pos int) ([]byte, int, error) {
+	if pos >= len(data) {
+		return nil, pos, fmt.Errorf("out of bounds at %d", pos)
+	}
+	if data[pos] != ettBinary {
+		next, err := skipETFValue(data, pos)
+		return nil, next, err
+	}
+	pos++
+	if pos+4 > len(data) {
+		return nil, pos, fmt.Errorf("short binary header")
+	}
+	n := int(binary.BigEndian.Uint32(data[pos:]))
+	pos += 4
+	if n < 0 || pos+n > len(data) {
+		return nil, pos, fmt.Errorf("out of bounds: need %d at %d in %d", n, pos, len(data))
+	}
+	cp := make([]byte, n)
+	copy(cp, data[pos:pos+n])
+	return cp, pos + n, nil
 }
 
 // matchedMarkerLen returns the length of the contentTupleMarker that starts at data[0:].
