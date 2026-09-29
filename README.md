@@ -126,25 +126,19 @@ phorcys/
 - **Duplicate delivery is possible.** If a message was already acknowledged
   before the crash, carving may recover and republish it again.
 
----
-
 ## Contributing
 
 Maintainers are accepting patches and contributions to this project.
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details about submitting
 contributions to this project.
 
----
-
-## Security Policy
+## Security policy
 
 Please see our [Security Policy](SECURITY.md) for details.
 
 ## License
 
 This project is licensed under the [Apache 2.0 License](LICENSE).
-
----
 
 ## Third-party dependencies
 
