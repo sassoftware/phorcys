@@ -22,13 +22,13 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, message
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	pubCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()

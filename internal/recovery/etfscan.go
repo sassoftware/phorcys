@@ -77,13 +77,7 @@ func scanContentTuples(data []byte) (payloads [][]byte) {
 func scanContentMessages(data []byte) (messages []amqp.Publishing) {
 	idx := 0
 	for idx < len(data) {
-		nearest := -1
-		for _, marker := range contentTupleMarkers {
-			pos := bytes.Index(data[idx:], marker)
-			if pos != -1 && (nearest == -1 || pos < nearest) {
-				nearest = pos
-			}
-		}
+		nearest := findNearestMarker(data, idx)
 		if nearest == -1 {
 			break
 		}
@@ -93,31 +87,9 @@ func scanContentMessages(data []byte) (messages []amqp.Publishing) {
 			idx = abs + 1
 			continue
 		}
-		cur := abs + markerLen
 
-		// Field 2: classId — skip.
-		var err error
-		cur, err = skipETFValue(data, cur)
+		propsBin, cur, err := parseContentFields(data, abs+markerLen)
 		if err != nil {
-			idx = abs + 1
-			continue
-		}
-		// Field 3: decoded-props — skip (lazily elided, stored as atom 'none').
-		cur, err = skipETFValue(data, cur)
-		if err != nil {
-			idx = abs + 1
-			continue
-		}
-		// Field 4: encoded-props binary — capture so headers can be decoded.
-		var propsBin []byte
-		propsBin, cur, err = extractBinaryField(data, cur)
-		if err != nil {
-			idx = abs + 1
-			continue
-		}
-		// Field 5: framing-module — skip.
-		cur, err = skipETFValue(data, cur)
-		if err != nil || cur >= len(data) {
 			idx = abs + 1
 			continue
 		}
@@ -143,6 +115,49 @@ func scanContentMessages(data []byte) (messages []amqp.Publishing) {
 		}
 	}
 	return messages
+}
+
+// findNearestMarker returns the offset (relative to idx) of the closest content-tuple
+// marker at or after idx, or -1 if none of the markers appear again in data.
+func findNearestMarker(data []byte, idx int) int {
+	nearest := -1
+	for _, marker := range contentTupleMarkers {
+		pos := bytes.Index(data[idx:], marker)
+		if pos != -1 && (nearest == -1 || pos < nearest) {
+			nearest = pos
+		}
+	}
+	return nearest
+}
+
+// parseContentFields skips the classId and decoded-props fields, extracts the
+// encoded-properties binary, and skips the framing-module field, leaving cur
+// positioned at the payload-list field (field 6).
+func parseContentFields(data []byte, cur int) (propsBin []byte, next int, err error) {
+	// Field 2: classId — skip.
+	cur, err = skipETFValue(data, cur)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Field 3: decoded-props — skip (lazily elided, stored as atom 'none').
+	cur, err = skipETFValue(data, cur)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Field 4: encoded-props binary — capture so headers can be decoded.
+	propsBin, cur, err = extractBinaryField(data, cur)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Field 5: framing-module — skip.
+	cur, err = skipETFValue(data, cur)
+	if err != nil {
+		return nil, 0, err
+	}
+	if cur >= len(data) {
+		return nil, 0, fmt.Errorf("truncated after framing-module field")
+	}
+	return propsBin, cur, nil
 }
 
 // extractBinaryField reads a BINARY_EXT value at data[pos] and returns a copy

@@ -40,7 +40,7 @@ func TestDecodeBasicProperties_NoHeadersFlagLeavesHeadersNil(t *testing.T) {
 	var b []byte
 	b = append(b, 0x80, 0x00) // propFlagContentType only
 	ct := []byte("application/json")
-	b = append(b, byte(len(ct)))
+	b = append(b, byte(len(ct))) //nolint:gosec
 	b = append(b, ct...)
 
 	p, err := decodeBasicProperties(b)
@@ -57,15 +57,15 @@ func buildEncodedProperties(t *testing.T, contentType, headerKey, headerVal stri
 
 	var b []byte
 	flags := uint16(propFlagContentType | propFlagHeaders | propFlagDeliveryMode)
-	b = append(b, byte(flags>>8), byte(flags))
+	b = append(b, byte(flags>>8), byte(flags)) //nolint:gosec
 
 	// content-type: shortstr
-	b = append(b, byte(len(contentType)))
+	b = append(b, byte(len(contentType))) //nolint:gosec
 	b = append(b, contentType...)
 
 	// headers: longstr containing one packed key/value pair (type 'S' longstr)
 	var table []byte
-	table = append(table, byte(len(headerKey)))
+	table = append(table, byte(len(headerKey))) //nolint:gosec
 	table = append(table, headerKey...)
 	table = append(table, 'S')
 	table = appendUint32(table, uint32(len(headerVal))) //nolint:gosec
@@ -85,26 +85,26 @@ func TestDecodeBasicProperties_AllFlags(t *testing.T) {
 		propFlagDeliveryMode | propFlagPriority | propFlagCorrelationID | propFlagReplyTo |
 		propFlagExpiration | propFlagMessageID | propFlagTimestamp | propFlagType |
 		propFlagUserID | propFlagAppID)
-	b = append(b, byte(flags>>8), byte(flags))
+	b = append(b, byte(flags>>8), byte(flags)) //nolint:gosec
 
-	b = appendShortstr(b, "text/plain")     // content-type
-	b = appendShortstr(b, "identity")       // content-encoding
-	b = appendUint32(b, 0)                  // headers: empty table
-	b = append(b, 2)                        // delivery-mode
-	b = append(b, 5)                        // priority
-	b = appendShortstr(b, "corr-1")         // correlation-id
-	b = appendShortstr(b, "reply-q")        // reply-to
-	b = appendShortstr(b, "60000")          // expiration
-	b = appendShortstr(b, "msg-1")          // message-id
+	b = appendShortstr(b, "text/plain") // content-type
+	b = appendShortstr(b, "identity")   // content-encoding
+	b = appendUint32(b, 0)              // headers: empty table
+	b = append(b, 2)                    // delivery-mode
+	b = append(b, 5)                    // priority
+	b = appendShortstr(b, "corr-1")     // correlation-id
+	b = appendShortstr(b, "reply-q")    // reply-to
+	b = appendShortstr(b, "60000")      // expiration
+	b = appendShortstr(b, "msg-1")      // message-id
 	ts := time.Unix(1700000000, 0)
 	tsBuf := make([]byte, 8)
 	for i := range tsBuf {
-		tsBuf[len(tsBuf)-1-i] = byte(ts.Unix() >> (8 * i))
+		tsBuf[len(tsBuf)-1-i] = byte(ts.Unix() >> (8 * i)) //nolint:gosec
 	}
-	b = append(b, tsBuf...) // timestamp
+	b = append(b, tsBuf...)                // timestamp
 	b = appendShortstr(b, "order.created") // type
-	b = appendShortstr(b, "alice")          // user-id
-	b = appendShortstr(b, "svc-1")          // app-id
+	b = appendShortstr(b, "alice")         // user-id
+	b = appendShortstr(b, "svc-1")         // app-id
 
 	p, err := decodeBasicProperties(b)
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestDecodeBasicProperties_TruncatedFieldReturnsError(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			b := []byte{byte(tc.flag >> 8), byte(tc.flag)}
+			b := []byte{byte(tc.flag >> 8), byte(tc.flag)} //nolint:gosec
 			_, err := decodeBasicProperties(b)
 			assert.Error(t, err)
 		})
@@ -153,7 +153,7 @@ func TestDecodeBasicProperties_TruncatedFieldReturnsError(t *testing.T) {
 }
 
 func appendShortstr(b []byte, s string) []byte {
-	b = append(b, byte(len(s)))
+	b = append(b, byte(len(s))) //nolint:gosec
 	return append(b, s...)
 }
 
@@ -354,8 +354,8 @@ func TestReadAMQPFieldArray_TruncatedBodyErrors(t *testing.T) {
 }
 
 func TestReadAMQPFieldArray_InvalidElementErrors(t *testing.T) {
-	elems := []byte{'?'} // unsupported type tag
-	data := appendUint32(nil, uint32(len(elems)))
+	elems := []byte{'?'}                          // unsupported type tag
+	data := appendUint32(nil, uint32(len(elems))) //nolint:gosec
 	data = append(data, elems...)
 	r := bytes.NewReader(data)
 	_, err := readAMQPFieldArray(r)

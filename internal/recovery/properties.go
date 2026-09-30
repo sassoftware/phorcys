@@ -35,6 +35,73 @@ const (
 	propFlagReserved1       = 0x0004 // deprecated cluster-id; not surfaced
 )
 
+// propField decodes one optional basic-property when its flag bit is set.
+type propField struct {
+	flag uint16
+	name string
+	read func(r *bytes.Reader, p *amqp.Publishing) error
+}
+
+// propFields lists every optional basic-property in wire order (matching the flag
+// bit layout above), so decodeBasicProperties can process them in a single loop
+// instead of one flag-check per field.
+var propFields = []propField{
+	{propFlagContentType, "content-type", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.ContentType, err = readShortstr(r)
+		return err
+	}},
+	{propFlagContentEncoding, "content-encoding", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.ContentEncoding, err = readShortstr(r)
+		return err
+	}},
+	{propFlagHeaders, "headers", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.Headers, err = readAMQPTable(r)
+		return err
+	}},
+	{propFlagDeliveryMode, "delivery-mode", func(r *bytes.Reader, p *amqp.Publishing) error {
+		return binary.Read(r, binary.BigEndian, &p.DeliveryMode)
+	}},
+	{propFlagPriority, "priority", func(r *bytes.Reader, p *amqp.Publishing) error {
+		return binary.Read(r, binary.BigEndian, &p.Priority)
+	}},
+	{propFlagCorrelationID, "correlation-id", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.CorrelationId, err = readShortstr(r)
+		return err
+	}},
+	{propFlagReplyTo, "reply-to", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.ReplyTo, err = readShortstr(r)
+		return err
+	}},
+	{propFlagExpiration, "expiration", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.Expiration, err = readShortstr(r)
+		return err
+	}},
+	{propFlagMessageID, "message-id", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.MessageId, err = readShortstr(r)
+		return err
+	}},
+	{propFlagTimestamp, "timestamp", func(r *bytes.Reader, p *amqp.Publishing) error {
+		var sec int64
+		if err := binary.Read(r, binary.BigEndian, &sec); err != nil {
+			return err
+		}
+		p.Timestamp = time.Unix(sec, 0)
+		return nil
+	}},
+	{propFlagType, "type", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.Type, err = readShortstr(r)
+		return err
+	}},
+	{propFlagUserID, "user-id", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.UserId, err = readShortstr(r)
+		return err
+	}},
+	{propFlagAppID, "app-id", func(r *bytes.Reader, p *amqp.Publishing) (err error) {
+		p.AppId, err = readShortstr(r)
+		return err
+	}},
+}
+
 // decodeBasicProperties parses a RabbitMQ "encoded properties" binary (the
 // value carved out of field 4 of a {content,...} tuple) into an amqp.Publishing
 // template with Headers and the other basic-properties populated; Body is left
@@ -51,72 +118,12 @@ func decodeBasicProperties(data []byte) (amqp.Publishing, error) {
 		return p, fmt.Errorf("reading property flags: %w", err)
 	}
 
-	var err error
-	if flags&propFlagContentType != 0 {
-		if p.ContentType, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("content-type: %w", err)
+	for _, field := range propFields {
+		if flags&field.flag == 0 {
+			continue
 		}
-	}
-	if flags&propFlagContentEncoding != 0 {
-		if p.ContentEncoding, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("content-encoding: %w", err)
-		}
-	}
-	if flags&propFlagHeaders != 0 {
-		if p.Headers, err = readAMQPTable(r); err != nil {
-			return p, fmt.Errorf("headers: %w", err)
-		}
-	}
-	if flags&propFlagDeliveryMode != 0 {
-		if err = binary.Read(r, binary.BigEndian, &p.DeliveryMode); err != nil {
-			return p, fmt.Errorf("delivery-mode: %w", err)
-		}
-	}
-	if flags&propFlagPriority != 0 {
-		if err = binary.Read(r, binary.BigEndian, &p.Priority); err != nil {
-			return p, fmt.Errorf("priority: %w", err)
-		}
-	}
-	if flags&propFlagCorrelationID != 0 {
-		if p.CorrelationId, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("correlation-id: %w", err)
-		}
-	}
-	if flags&propFlagReplyTo != 0 {
-		if p.ReplyTo, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("reply-to: %w", err)
-		}
-	}
-	if flags&propFlagExpiration != 0 {
-		if p.Expiration, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("expiration: %w", err)
-		}
-	}
-	if flags&propFlagMessageID != 0 {
-		if p.MessageId, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("message-id: %w", err)
-		}
-	}
-	if flags&propFlagTimestamp != 0 {
-		var sec int64
-		if err = binary.Read(r, binary.BigEndian, &sec); err != nil {
-			return p, fmt.Errorf("timestamp: %w", err)
-		}
-		p.Timestamp = time.Unix(sec, 0)
-	}
-	if flags&propFlagType != 0 {
-		if p.Type, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("type: %w", err)
-		}
-	}
-	if flags&propFlagUserID != 0 {
-		if p.UserId, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("user-id: %w", err)
-		}
-	}
-	if flags&propFlagAppID != 0 {
-		if p.AppId, err = readShortstr(r); err != nil {
-			return p, fmt.Errorf("app-id: %w", err)
+		if err := field.read(r, &p); err != nil {
+			return p, fmt.Errorf("%s: %w", field.name, err)
 		}
 	}
 

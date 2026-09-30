@@ -22,11 +22,11 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 
 	conn, err := amqp.Dial(amqpClusterURL)
 	require.NoError(t, err, "Failed to connect to cluster: %v", err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()
 	require.NoError(t, err, "Failed to open channel: %v", err)
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	// 1. Declare the quorum queue
 	// Note: Quorum queues must always be declared as durable

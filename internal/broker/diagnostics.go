@@ -168,7 +168,7 @@ func (dm *DiagnosticsManager) probeQueueGet(ctx context.Context, vhost, queueNam
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// A healthy queue returns 200. An unrecoverable queue returns 400 or 500 with
 	// "noproc" in the body — the ra process crashed during the read attempt.
@@ -199,7 +199,7 @@ func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, err
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -222,7 +222,7 @@ func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]RabbitQueue
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
@@ -251,7 +251,7 @@ func (dm *DiagnosticsManager) fetchSpecificQueue(ctx context.Context, vhost, que
 	if err != nil {
 		return nil, false, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Capture explicit 500 status codes caused by internal Erlang process panics
 	if resp.StatusCode == http.StatusInternalServerError {

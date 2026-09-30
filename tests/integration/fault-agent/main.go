@@ -25,9 +25,15 @@ const (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
-		amqpURL = "amqp://guest:guest@localhost:5672/"
+		amqpURL = "amqp://guest:guest@localhost:5672/" //nolint:gosec // local docker-compose default, not a real credential
 	}
 
 	mnesiaPath := os.Getenv("MNESIA_PATH")
@@ -35,7 +41,7 @@ func main() {
 		mnesiaPath = defaultMnesiaPath
 	}
 
-	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath)
+	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath) //nolint:gosec // mnesiaPath is operator-supplied container config, not attacker input
 
 	// Retry loop to wait for RabbitMQ to fully boot inside the container
 	var conn *amqp.Connection
@@ -49,15 +55,15 @@ func main() {
 		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
-		log.Fatalf("Could not connect to RabbitMQ: %v", err)
+		return fmt.Errorf("could not connect to RabbitMQ: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		log.Fatalf("Failed to open channel: %v", err)
+		return fmt.Errorf("failed to open channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	// Declare a queue specifically for the trigger signal
 	_, err = ch.QueueDeclare(
@@ -69,7 +75,7 @@ func main() {
 		amqp.Table{},
 	)
 	if err != nil {
-		log.Fatalf("Failed to declare classic trigger queue: %v", err)
+		return fmt.Errorf("failed to declare classic trigger queue: %w", err)
 	}
 
 	msgs, err := ch.Consume(
@@ -82,7 +88,7 @@ func main() {
 		nil,   // args
 	)
 	if err != nil {
-		log.Fatalf("Failed to register consumer: %v", err)
+		return fmt.Errorf("failed to register consumer: %w", err)
 	}
 
 	log.Printf("Agent successfully listening on queue: %s", triggerQueue)
@@ -94,7 +100,7 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-msgs:
 			log.Println("Received fault injection signal from integration test! Corrupting logs...")
 
@@ -112,17 +118,17 @@ func main() {
 // load the file (making the queue unrecoverable), while phorcys's raw ETF byte-scanner can still locate
 // message payloads deeper in the file body.
 func CorruptQuorumQueueData(dataDir string) error {
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) { //nolint:gosec // dataDir is operator-supplied container config, not attacker input
 		return fmt.Errorf("data directory does not exist: %s", dataDir)
 	}
 
-	return filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error { //nolint:gosec // dataDir is operator-supplied container config, not attacker input
 		if err != nil {
 			return err
 		}
 
 		if !d.IsDir() && strings.Contains(path, "/quorum/") && filepath.Ext(path) == ".segment" {
-			file, err := os.OpenFile(path, os.O_WRONLY, 0600)
+			file, err := os.OpenFile(path, os.O_WRONLY, 0600) //nolint:gosec // test-only fault injection in an ephemeral container, not attacker-reachable
 			if err != nil {
 				return fmt.Errorf("failed to open %s: %w", path, err)
 			}
@@ -131,22 +137,22 @@ func CorruptQuorumQueueData(dataDir string) error {
 			const headerSize = 64
 			garbage := make([]byte, headerSize)
 			if _, err := rand.Read(garbage); err != nil {
-				file.Close()
+				_ = file.Close()
 				return fmt.Errorf("failed to read random bytes: %w", err)
 			}
 
 			// Overwrite only the header so ra refuses to load the file, but message payloads
 			// deeper in the file body remain intact for phorcys's byte-scanner.
 			if _, err := file.WriteAt(garbage, 0); err != nil {
-				file.Close()
+				_ = file.Close()
 				return fmt.Errorf("failed to overwrite data in %s: %w", path, err)
 			}
 
 			if err := file.Sync(); err != nil {
-				file.Close()
+				_ = file.Close()
 				return fmt.Errorf("failed to sync %s: %w", path, err)
 			}
-			file.Close()
+			_ = file.Close()
 			log.Printf("Corrupted segment header: %s", path)
 		}
 		return nil
