@@ -52,9 +52,14 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 			false,       // mandatory
 			false,       // immediate
 			amqp.Publishing{
-				ContentType:  "text/plain",
-				Body:         []byte(messageBody),
-				DeliveryMode: amqp.Persistent, // Forces Raft to write to disk segments
+				Headers: amqp.Table{
+					"x-packet-index": i,
+					"x-source":       "integration-test",
+				},
+				ContentType:     "text/plain",
+				ContentEncoding: "utf-8",
+				Body:            []byte(messageBody),
+				DeliveryMode:    amqp.Persistent, // Forces Raft to write to disk segments
 			},
 		)
 		require.NoError(t, err, "Failed to publish message %d: %v", i, err)
