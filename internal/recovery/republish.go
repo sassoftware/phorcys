@@ -30,6 +30,11 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, message
 	}
 	defer func() { _ = ch.Close() }()
 
+	if err = ch.Confirm(false); err != nil {
+		return fmt.Errorf("failed to enable publisher confirmations: %w", err)
+	}
+	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
 	pubCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
@@ -61,8 +66,26 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, message
 		if err != nil {
 			return fmt.Errorf("failed publishing message %d: %w", i, err)
 		}
+		if err = waitForPublishConfirmation(pubCtx, confirms, i); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("[Republish] Published %d messages to queue %s", len(messages), targetQueue)
 	return nil
+}
+
+func waitForPublishConfirmation(ctx context.Context, confirms <-chan amqp.Confirmation, index int) error {
+	select {
+	case confirmation, ok := <-confirms:
+		if !ok {
+			return fmt.Errorf("publisher confirmation channel closed while waiting for message %d", index)
+		}
+		if !confirmation.Ack {
+			return fmt.Errorf("broker negatively acknowledged message %d", index)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("timed out waiting for publisher confirmation for message %d: %w", index, ctx.Err())
+	}
 }
