@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/monitor"
 	"github.com/sassoftware/phorcys/internal/runtime"
@@ -36,7 +36,7 @@ func main() {
 		cfg.QuorumBasePath = dm0.ResolveQuorumBasePath(context.Background())
 	}
 
-	conn, err := amqp.Dial(cfg.AMQPURL)
+	conn, err := amqpx.Dial(cfg.AMQPURL)
 	if err != nil {
 		log.Fatalf("FATAL: Cannot connect to broker: %v", err)
 	}

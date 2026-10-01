@@ -12,12 +12,24 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
-const logScannerQueueName = "phorcys.logs.health.scanner"
+const (
+	logScannerQueueName = "phorcys.logs.health.scanner"
+	logExchange         = "amq.rabbitmq.log"
+
+	defaultInventoryInterval = 10 * time.Minute
+	// defaultCoalesceDelay lets the broker finish printing consecutive stack traces before we query it.
+	defaultCoalesceDelay = 4 * time.Second
+)
+
+// recoveryFunc runs the recovery pipeline for a single queue.
+type recoveryFunc func(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error
 
 // QueueJob is a single health-check work item dispatched to the worker pool.
 type QueueJob struct {
@@ -34,7 +46,7 @@ type TrackedQueue struct {
 // LogMonitorWorker subscribes to the amq.rabbitmq.log exchange, detects quorum queue
 // error signatures in log lines, and triggers the recovery pipeline when warranted.
 type LogMonitorWorker struct {
-	amqpConn      *amqp.Connection
+	amqpConn      amqpx.Connection
 	diagnostics   *broker.DiagnosticsManager
 	cfg           runtime.Config
 	quorumList    []TrackedQueue
@@ -42,16 +54,23 @@ type LogMonitorWorker struct {
 	pendingChecks sync.Map
 	jobChannel    chan QueueJob
 	workerCount   int
+
+	inventoryInterval time.Duration
+	coalesceDelay     time.Duration
+	runRecovery       recoveryFunc
 }
 
 // NewLogMonitorWorker constructs a LogMonitorWorker wired to the provided connection and config.
-func NewLogMonitorWorker(conn *amqp.Connection, dm *broker.DiagnosticsManager, cfg runtime.Config, concurrentWorkers int) *LogMonitorWorker {
+func NewLogMonitorWorker(conn amqpx.Connection, dm *broker.DiagnosticsManager, cfg runtime.Config, concurrentWorkers int) *LogMonitorWorker {
 	return &LogMonitorWorker{
-		amqpConn:    conn,
-		diagnostics: dm,
-		cfg:         cfg,
-		jobChannel:  make(chan QueueJob, 1000),
-		workerCount: concurrentWorkers,
+		amqpConn:          conn,
+		diagnostics:       dm,
+		cfg:               cfg,
+		jobChannel:        make(chan QueueJob, 1000),
+		workerCount:       concurrentWorkers,
+		inventoryInterval: defaultInventoryInterval,
+		coalesceDelay:     defaultCoalesceDelay,
+		runRecovery:       recovery.Run,
 	}
 }
 
@@ -61,9 +80,13 @@ func (lm *LogMonitorWorker) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Refresh the quorum queue inventory every 10 minutes so newly created queues are picked up.
+	// Periodically refresh the quorum queue inventory so newly created queues are picked up.
+	interval := lm.inventoryInterval
+	if interval <= 0 {
+		interval = defaultInventoryInterval
+	}
 	go func() {
-		ticker := time.NewTicker(10 * time.Minute)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -131,7 +154,7 @@ func (lm *LogMonitorWorker) consumeSystemLogs(ctx context.Context) error {
 	}
 
 	for _, severity := range []string{"warning", "error"} {
-		if err = ch.QueueBind(q.Name, severity, "amq.rabbitmq.log", false, nil); err != nil {
+		if err = ch.QueueBind(q.Name, severity, logExchange, false, nil); err != nil {
 			return err
 		}
 	}
@@ -185,8 +208,7 @@ func (lm *LogMonitorWorker) coalesceLogEvent(vhost, name string) {
 	if _, loaded := lm.pendingChecks.LoadOrStore(key, true); loaded {
 		return // A check is already queued or in flight.
 	}
-	// Brief pause to let the broker finish printing consecutive stack traces before we query it.
-	time.Sleep(4 * time.Second)
+	time.Sleep(lm.coalesceDelay)
 	lm.jobChannel <- QueueJob{VHost: vhost, Name: name}
 }
 
@@ -216,7 +238,11 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 							log.Printf("[Worker #%d] Recovery pipeline PANIC for %s: %v", id, key, r)
 						}
 					}()
-					if err := recovery.Run(ctx, lm.cfg, lm.diagnostics, job.VHost, job.Name); err != nil {
+					runRecovery := lm.runRecovery
+					if runRecovery == nil {
+						runRecovery = recovery.Run
+					}
+					if err = runRecovery(ctx, lm.cfg, lm.diagnostics, job.VHost, job.Name); err != nil {
 						log.Printf("[Worker #%d] Recovery pipeline FAILED for %s: %v", id, key, err)
 					} else {
 						log.Printf("[Worker #%d] Recovery pipeline completed for %s", id, key)

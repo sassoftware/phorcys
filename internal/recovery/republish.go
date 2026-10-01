@@ -10,43 +10,12 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/sassoftware/phorcys/internal/amqpx"
 )
 
-// amqpChannel is the subset of *amqp.Channel used for republishing.
-type amqpChannel interface {
-	Confirm(noWait bool) error
-	NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confirmation
-	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
-	PublishWithContext(ctx context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error
-	Close() error
-}
-
-// amqpConnection is the subset of *amqp.Connection used for republishing.
-type amqpConnection interface {
-	Channel() (amqpChannel, error)
-	Close() error
-}
-
-type amqpConnectionAdapter struct {
-	conn *amqp.Connection
-}
-
-func (a *amqpConnectionAdapter) Channel() (amqpChannel, error) {
-	return a.conn.Channel()
-}
-
-func (a *amqpConnectionAdapter) Close() error {
-	return a.conn.Close()
-}
-
 // dialAMQP is a variable so tests can substitute a fake broker connection.
-var dialAMQP = func(url string) (amqpConnection, error) {
-	conn, err := amqp.Dial(url)
-	if err != nil {
-		return nil, err
-	}
-	return &amqpConnectionAdapter{conn: conn}, nil
-}
+var dialAMQP = amqpx.Dial
 
 // RepublishMessages connects to the broker and publishes all recovered messages to the
 // default exchange using targetQueue as the routing key, so each message is delivered

@@ -12,103 +12,19 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/sassoftware/phorcys/internal/amqpx"
+	"github.com/sassoftware/phorcys/internal/amqpx/amqptest"
 )
 
-type declaredQueue struct {
-	name       string
-	durable    bool
-	autoDelete bool
-	exclusive  bool
-	noWait     bool
-}
-
-type sentMessage struct {
-	exchange  string
-	key       string
-	mandatory bool
-	immediate bool
-	msg       amqp.Publishing
-}
-
-// fakeChannel simulates a broker channel in confirm mode. By default, every
-// publish is acked; behavior can be altered per message index.
-type fakeChannel struct {
-	confirmErr     error
-	declareErr     error
-	publishErrAt   map[int]error
-	nackAt         map[int]bool
-	noConfirmAt    map[int]bool
-	closeConfirmAt map[int]bool
-
-	confirmCalled bool
-	confirmNoWait bool
-	declared      []declaredQueue
-	published     []sentMessage
-	closed        bool
-	confirms      chan amqp.Confirmation
-}
-
-func (f *fakeChannel) Confirm(noWait bool) error {
-	f.confirmCalled = true
-	f.confirmNoWait = noWait
-	return f.confirmErr
-}
-
-func (f *fakeChannel) NotifyPublish(c chan amqp.Confirmation) chan amqp.Confirmation {
-	f.confirms = c
-	return c
-}
-
-func (f *fakeChannel) QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, _ amqp.Table) (amqp.Queue, error) {
-	f.declared = append(f.declared, declaredQueue{name, durable, autoDelete, exclusive, noWait})
-	return amqp.Queue{Name: name}, f.declareErr
-}
-
-func (f *fakeChannel) PublishWithContext(_ context.Context, exchange, key string, mandatory, immediate bool, msg amqp.Publishing) error {
-	i := len(f.published)
-	if err := f.publishErrAt[i]; err != nil {
-		return err
-	}
-	f.published = append(f.published, sentMessage{exchange, key, mandatory, immediate, msg})
-	switch {
-	case f.closeConfirmAt[i]:
-		close(f.confirms)
-	case f.noConfirmAt[i]:
-	default:
-		f.confirms <- amqp.Confirmation{DeliveryTag: uint64(i + 1), Ack: !f.nackAt[i]}
-	}
-	return nil
-}
-
-func (f *fakeChannel) Close() error {
-	f.closed = true
-	return nil
-}
-
-type fakeConnection struct {
-	ch         *fakeChannel
-	channelErr error
-	closed     bool
-}
-
-func (f *fakeConnection) Channel() (amqpChannel, error) {
-	if f.channelErr != nil {
-		return nil, f.channelErr
-	}
-	return f.ch, nil
-}
-
-func (f *fakeConnection) Close() error {
-	f.closed = true
-	return nil
-}
+const testQueue = "orders"
 
 // useFakeBroker swaps dialAMQP for the duration of the test and records the dialed URL.
-func useFakeBroker(t *testing.T, conn *fakeConnection, dialErr error) *string {
+func useFakeBroker(t *testing.T, conn *amqptest.Connection, dialErr error) *string {
 	t.Helper()
 	var dialedURL string
 	orig := dialAMQP
-	dialAMQP = func(url string) (amqpConnection, error) {
+	dialAMQP = func(url string) (amqpx.Connection, error) {
 		dialedURL = url
 		if dialErr != nil {
 			return nil, dialErr
@@ -120,52 +36,62 @@ func useFakeBroker(t *testing.T, conn *fakeConnection, dialErr error) *string {
 }
 
 func TestRepublishMessages_PublishesAllPayloadsWithConfirms(t *testing.T) {
-	ch := &fakeChannel{}
-	conn := &fakeConnection{ch: ch}
+	ch := amqptest.NewChannel()
+	conn := amqptest.NewConnection(ch)
 	dialedURL := useFakeBroker(t, conn, nil)
-	payloads := [][]byte{[]byte("one"), []byte("two"), []byte("three")}
+	messages := []amqp.Publishing{
+		{Body: []byte("one")},
+		{Body: []byte("two")},
+		{Body: []byte("three")},
+	}
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", payloads)
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, messages)
 
 	require.NoError(t, err)
 	assert.Equal(t, "amqp://fake/", *dialedURL)
-	assert.True(t, ch.confirmCalled, "confirm mode should be enabled")
-	assert.False(t, ch.confirmNoWait)
-	require.Len(t, ch.declared, 1)
-	assert.Equal(t, declaredQueue{name: "orders", durable: true, noWait: true}, ch.declared[0])
+	assert.True(t, ch.ConfirmMode(), "confirm mode should be enabled")
+	assert.False(t, ch.ConfirmNoWait())
+	declared := ch.Declared()
+	require.Len(t, declared, 1)
+	assert.Equal(t, testQueue, declared[0].Name)
+	assert.True(t, declared[0].Durable)
+	assert.False(t, declared[0].AutoDelete)
+	assert.False(t, declared[0].Exclusive)
+	assert.True(t, declared[0].NoWait)
 
-	require.Len(t, ch.published, len(payloads))
-	for i, p := range ch.published {
-		assert.Equal(t, "", p.exchange, "should use default exchange")
-		assert.Equal(t, "orders", p.key)
-		assert.False(t, p.mandatory)
-		assert.False(t, p.immediate)
-		assert.Equal(t, payloads[i], p.msg.Body, "payload order must be preserved")
-		assert.Equal(t, amqp.Persistent, p.msg.DeliveryMode)
-		assert.Equal(t, "application/octet-stream", p.msg.ContentType)
+	published := ch.Published()
+	require.Len(t, published, len(messages))
+	for i, p := range published {
+		assert.Equal(t, "", p.Exchange, "should use default exchange")
+		assert.Equal(t, testQueue, p.Key)
+		assert.False(t, p.Mandatory)
+		assert.False(t, p.Immediate)
+		assert.Equal(t, messages[i].Body, p.Msg.Body, "payload order must be preserved")
+		assert.Equal(t, amqp.Persistent, p.Msg.DeliveryMode)
+		assert.Equal(t, "application/octet-stream", p.Msg.ContentType)
 	}
-	assert.True(t, ch.closed)
-	assert.True(t, conn.closed)
+	assert.True(t, ch.Closed())
+	assert.True(t, conn.Closed())
 }
 
 func TestRepublishMessages_EmptyPayloadsPublishesNothing(t *testing.T) {
-	ch := &fakeChannel{}
-	conn := &fakeConnection{ch: ch}
+	ch := amqptest.NewChannel()
+	conn := amqptest.NewConnection(ch)
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", nil)
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil)
 
 	require.NoError(t, err)
-	assert.Empty(t, ch.published)
-	assert.True(t, ch.closed)
-	assert.True(t, conn.closed)
+	assert.Empty(t, ch.Published())
+	assert.True(t, ch.Closed())
+	assert.True(t, conn.Closed())
 }
 
 func TestRepublishMessages_DialError(t *testing.T) {
 	dialErr := errors.New("connection refused")
 	useFakeBroker(t, nil, dialErr)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", [][]byte{[]byte("x")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, dialErr)
 	assert.ErrorContains(t, err, "failed to connect to broker")
@@ -173,92 +99,111 @@ func TestRepublishMessages_DialError(t *testing.T) {
 
 func TestRepublishMessages_ChannelError(t *testing.T) {
 	chErr := errors.New("channel max reached")
-	conn := &fakeConnection{channelErr: chErr}
+	conn := &amqptest.Connection{ChannelErr: chErr}
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", [][]byte{[]byte("x")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, chErr)
 	assert.ErrorContains(t, err, "failed to open channel")
-	assert.True(t, conn.closed)
+	assert.True(t, conn.Closed())
 }
 
 func TestRepublishMessages_ConfirmModeError(t *testing.T) {
 	confirmErr := errors.New("confirm not supported")
-	ch := &fakeChannel{confirmErr: confirmErr}
-	conn := &fakeConnection{ch: ch}
+	ch := &amqptest.Channel{ConfirmErr: confirmErr}
+	conn := amqptest.NewConnection(ch)
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", [][]byte{[]byte("x")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, confirmErr)
 	assert.ErrorContains(t, err, "failed to enable publisher confirmations")
-	assert.Empty(t, ch.published)
-	assert.True(t, ch.closed)
-	assert.True(t, conn.closed)
+	assert.Empty(t, ch.Published())
+	assert.True(t, ch.Closed())
+	assert.True(t, conn.Closed())
 }
 
 func TestRepublishMessages_QueueDeclareError(t *testing.T) {
 	declareErr := errors.New("precondition failed")
-	ch := &fakeChannel{declareErr: declareErr}
-	useFakeBroker(t, &fakeConnection{ch: ch}, nil)
+	ch := &amqptest.Channel{DeclareErr: declareErr}
+	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders", [][]byte{[]byte("x")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, declareErr)
 	assert.ErrorContains(t, err, "failed to recreate queue")
-	assert.Empty(t, ch.published)
+	assert.Empty(t, ch.Published())
 }
 
 func TestRepublishMessages_PublishErrorStopsPublishing(t *testing.T) {
 	pubErr := errors.New("channel closed")
-	ch := &fakeChannel{publishErrAt: map[int]error{1: pubErr}}
-	useFakeBroker(t, &fakeConnection{ch: ch}, nil)
+	ch := &amqptest.Channel{PublishErrAt: map[int]error{1: pubErr}}
+	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders",
-		[][]byte{[]byte("a"), []byte("b"), []byte("c")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+		[]amqp.Publishing{
+			{Body: []byte("a")},
+			{Body: []byte("b")},
+			{Body: []byte("c")},
+		},
+	)
 
 	require.ErrorIs(t, err, pubErr)
 	assert.ErrorContains(t, err, "failed publishing message 1")
-	assert.Len(t, ch.published, 1)
+	assert.Len(t, ch.Published(), 1)
 }
 
 func TestRepublishMessages_NackStopsPublishing(t *testing.T) {
-	ch := &fakeChannel{nackAt: map[int]bool{1: true}}
-	useFakeBroker(t, &fakeConnection{ch: ch}, nil)
+	ch := &amqptest.Channel{NackAt: map[int]bool{1: true}}
+	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders",
-		[][]byte{[]byte("a"), []byte("b"), []byte("c")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+		[]amqp.Publishing{
+			{Body: []byte("a")},
+			{Body: []byte("b")},
+			{Body: []byte("c")},
+		},
+	)
 
 	require.ErrorContains(t, err, "negatively acknowledged message 1")
-	assert.Len(t, ch.published, 2, "no messages should be published after a nack")
+	assert.Len(t, ch.Published(), 2, "no messages should be published after a nack")
 }
 
 func TestRepublishMessages_ConfirmChannelClosed(t *testing.T) {
-	ch := &fakeChannel{closeConfirmAt: map[int]bool{0: true}}
-	useFakeBroker(t, &fakeConnection{ch: ch}, nil)
+	ch := &amqptest.Channel{CloseConfirmsAt: map[int]bool{0: true}}
+	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", "orders",
-		[][]byte{[]byte("a"), []byte("b")})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+		[]amqp.Publishing{
+			{Body: []byte("a")},
+			{Body: []byte("b")},
+		},
+	)
 
 	require.ErrorContains(t, err, "confirmation channel closed while waiting for message 0")
-	assert.Len(t, ch.published, 1)
+	assert.Len(t, ch.Published(), 1)
 }
 
 func TestRepublishMessages_ContextCancelledWhileAwaitingConfirm(t *testing.T) {
-	ch := &fakeChannel{noConfirmAt: map[int]bool{0: true}}
-	useFakeBroker(t, &fakeConnection{ch: ch}, nil)
+	ch := &amqptest.Channel{NoConfirmAt: map[int]bool{0: true}}
+	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
-	err := RepublishMessages(ctx, "amqp://fake/", "orders", [][]byte{[]byte("a"), []byte("b")})
+	err := RepublishMessages(ctx, "amqp://fake/", testQueue,
+		[]amqp.Publishing{
+			{Body: []byte("a")},
+			{Body: []byte("b")},
+		},
+	)
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.ErrorContains(t, err, "timed out waiting for publisher confirmation for message 0")
-	assert.Len(t, ch.published, 1)
+	assert.Len(t, ch.Published(), 1)
 }
 
-// The tests below exercise the real dialer against unreachable brokers.
+// The test below exercises the real dialer against an unreachable broker.
 
 func TestRepublishMessages_InvalidURLReturnsError(t *testing.T) {
 	err := RepublishMessages(context.Background(), "amqp://invalid.host.test:5672/", "q", []amqp.Publishing{{Body: []byte("x")}})

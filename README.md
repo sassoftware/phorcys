@@ -89,6 +89,10 @@ Phorcys runs until it receives `SIGINT` or `SIGTERM`.
 phorcys/
 ├── main.go                 # Entry point
 ├── internal/
+│   ├── amqpx/
+│   │   ├── amqpx.go        # AMQP Connection/Channel interfaces
+│   │   ├── shim.go         # Adapter over amqp091-go (live broker)
+│   │   └── amqptest/       # In-memory AMQP fakes for unit tests
 │   ├── runtime/
 │   │   └── config.go       # Config loading
 │   ├── monitor/
