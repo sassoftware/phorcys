@@ -87,7 +87,7 @@ func (lm *LogMonitorWorker) Start(ctx context.Context) error {
 // syncInventory fetches all queues from the management API and caches quorum queue names.
 func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
 	if lm.diagnostics == nil {
-		return fmt.Errorf("Unable to syncInventory: DiagnosticsManager not initialized")
+		return fmt.Errorf("unable to syncInventory: DiagnosticsManager not initialized")
 	}
 	allQueues, err := lm.diagnostics.FetchAllQueues(ctx)
 	if err != nil {
