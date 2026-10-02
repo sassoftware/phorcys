@@ -10,7 +10,12 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/sassoftware/phorcys/internal/amqpx"
 )
+
+// dialAMQP is a variable so tests can substitute a fake broker connection.
+var dialAMQP = amqpx.Dial
 
 // RepublishMessages connects to the broker and publishes all recovered messages to the
 // default exchange using targetQueue as the routing key, so each message is delivered
@@ -18,7 +23,7 @@ import (
 // etc.) recovered from the queue's data files are preserved; DeliveryMode and ContentType
 // fall back to sane defaults when they could not be recovered.
 func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, messages []amqp.Publishing) error {
-	conn, err := amqp.Dial(amqpURL)
+	conn, err := dialAMQP(amqpURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
 	}
@@ -29,6 +34,11 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, message
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
 	defer func() { _ = ch.Close() }()
+
+	if err = ch.Confirm(false); err != nil {
+		return fmt.Errorf("failed to enable publisher confirmations: %w", err)
+	}
+	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
 
 	pubCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -61,8 +71,26 @@ func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, message
 		if err != nil {
 			return fmt.Errorf("failed publishing message %d: %w", i, err)
 		}
+		if err = waitForPublishConfirmation(pubCtx, confirms, i); err != nil {
+			return err
+		}
 	}
 
 	log.Printf("[Republish] Published %d messages to queue %s", len(messages), targetQueue)
 	return nil
+}
+
+func waitForPublishConfirmation(ctx context.Context, confirms <-chan amqp.Confirmation, index int) error {
+	select {
+	case confirmation, ok := <-confirms:
+		if !ok {
+			return fmt.Errorf("publisher confirmation channel closed while waiting for message %d", index)
+		}
+		if !confirmation.Ack {
+			return fmt.Errorf("broker negatively acknowledged message %d", index)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("timed out waiting for publisher confirmation for message %d: %w", index, ctx.Err())
+	}
 }
