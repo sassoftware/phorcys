@@ -5,6 +5,7 @@ package monitor
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -85,6 +86,9 @@ func (lm *LogMonitorWorker) Start(ctx context.Context) error {
 
 // syncInventory fetches all queues from the management API and caches quorum queue names.
 func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
+	if lm.diagnostics == nil {
+		return fmt.Errorf("unable to syncInventory: DiagnosticsManager not initialized")
+	}
 	allQueues, err := lm.diagnostics.FetchAllQueues(ctx)
 	if err != nil {
 		return err
@@ -111,7 +115,7 @@ func (lm *LogMonitorWorker) consumeSystemLogs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	// Transient, auto-expiring monitoring sink with a bounded length to cap memory usage.
 	q, err := ch.QueueDeclare(
@@ -157,6 +161,11 @@ func (lm *LogMonitorWorker) processLogLine(logLine string) {
 		!strings.Contains(logLine, "quorum") &&
 		!strings.Contains(logLine, "raft") {
 		return
+	}
+
+	// Temporary until we work out a better way
+	if err := lm.syncInventory(context.Background()); err != nil {
+		log.Printf("ERROR: Failed syncing cluster queue names: %v", err)
 	}
 
 	lm.registryLock.RLock()

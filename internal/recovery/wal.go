@@ -10,6 +10,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // walMagic is the 4-byte magic number that opens every Ra WAL file.
@@ -27,8 +29,9 @@ type WALRecord struct {
 	Truncate bool   // true when this entry is a truncation marker
 }
 
-// ParseWALMessagesForQueue reads a Ra WAL file and returns all AMQP message
-// payloads belonging to records whose UID matches targetUID.
+// ParseWALMessagesForQueue reads a Ra WAL file and returns all AMQP messages
+// (payload plus original properties, including headers) belonging to records
+// whose UID matches targetUID.
 //
 // Ra WAL format (version 1) after the 5-byte file header:
 //
@@ -55,7 +58,7 @@ type WALRecord struct {
 //	    ETFData    [DataLen]byte
 //
 //nolint:gocognit
-func ParseWALMessagesForQueue(walPath, targetUID string) ([][]byte, error) {
+func ParseWALMessagesForQueue(walPath, targetUID string) ([]amqp.Publishing, error) {
 	data, err := os.ReadFile(walPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading WAL file: %w", err)
@@ -75,7 +78,7 @@ func ParseWALMessagesForQueue(walPath, targetUID string) ([][]byte, error) {
 	uidCache := make(map[uint32]string)
 	pos := 5 // skip file header
 
-	var payloads [][]byte
+	var messages []amqp.Publishing
 
 	for pos < len(data) {
 		// Need at least 3 bytes for the record header word.
@@ -177,10 +180,10 @@ func ParseWALMessagesForQueue(walPath, targetUID string) ([][]byte, error) {
 		// This record belongs to our target queue. Carve AMQP payloads from
 		// the ETF-encoded Ra machine command.
 		extracted := carvePayloadsFromETF(etfData)
-		payloads = append(payloads, extracted...)
+		messages = append(messages, extracted...)
 	}
 
-	return payloads, nil
+	return messages, nil
 }
 
 // ParseWALRecords returns all WAL records from the file, optionally filtered
@@ -287,13 +290,14 @@ func ParseWALRecords(walPath, filterUID string) ([]*WALRecord, error) {
 	return records, nil
 }
 
-// CarveWALMessages scans all *.wal files in walDir and extracts AMQP message payloads
-// whose WAL record UID matches queueUID. Only records that belong to the target queue
-// are decoded; records from other queues sharing the same WAL are ignored.
+// CarveWALMessages scans all *.wal files in walDir and extracts AMQP messages
+// (payload plus original properties, including headers) whose WAL record UID
+// matches queueUID. Only records that belong to the target queue are decoded;
+// records from other queues sharing the same WAL are ignored.
 //
 // Call this AFTER CarveMessagesFromDir (which handles .segment files) so that
 // WAL-only messages are appended in the correct temporal order.
-func CarveWALMessages(walDir, queueUID string) ([][]byte, error) {
+func CarveWALMessages(walDir, queueUID string) ([]amqp.Publishing, error) {
 	entries, err := os.ReadDir(walDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -302,7 +306,7 @@ func CarveWALMessages(walDir, queueUID string) ([][]byte, error) {
 		return nil, fmt.Errorf("reading WAL backup dir: %w", err)
 	}
 
-	var payloads [][]byte
+	var messages []amqp.Publishing
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != walFileSuffix {
 			continue
@@ -312,23 +316,23 @@ func CarveWALMessages(walDir, queueUID string) ([][]byte, error) {
 			log.Printf("[WAL] WARNING: failed to carve %s: %v", entry.Name(), err)
 			continue
 		}
-		payloads = append(payloads, p...)
+		messages = append(messages, p...)
 	}
-	return payloads, nil
+	return messages, nil
 }
 
 // carvePayloadsFromETF wraps a raw ETF data block (without the 0x83 version
 // byte) in a synthetic file buffer and reuses the shared content-tuple
-// scanner (etfscan.go) to extract AMQP payload binaries.
-func carvePayloadsFromETF(etfData []byte) (payloads [][]byte) {
+// scanner (etfscan.go) to extract AMQP messages, including headers.
+func carvePayloadsFromETF(etfData []byte) (messages []amqp.Publishing) {
 	// The ETF data from the WAL does NOT include the leading 0x83 version byte;
-	// scanContentTuples looks for the content-tuple byte pattern regardless,
+	// scanContentMessages looks for the content-tuple byte pattern regardless,
 	// so we can just pass the raw bytes directly.
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[WAL] WARNING: recovered from panic in carvePayloadsFromETF: %v", r)
-			payloads = nil
+			messages = nil
 		}
 	}()
-	return scanContentTuples(etfData)
+	return scanContentMessages(etfData)
 }

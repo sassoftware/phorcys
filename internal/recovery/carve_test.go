@@ -140,12 +140,12 @@ func TestCarveMessagesFromFile_ExtractsPayload(t *testing.T) {
 	dir := t.TempDir()
 	path := writeSegmentFile(t, dir, segmentFileSuffix, makeBasicMessageTerm([]byte("file payload")))
 
-	payloads, err := CarveMessagesFromFile(path)
+	messages, err := CarveMessagesFromFile(path)
 	require.NoError(t, err)
-	require.NotEmpty(t, payloads)
+	require.NotEmpty(t, messages)
 	found := false
-	for _, p := range payloads {
-		if string(p) == "file payload" {
+	for _, m := range messages {
+		if string(m.Body) == "file payload" {
 			found = true
 		}
 	}
@@ -165,9 +165,9 @@ func TestCarveMessagesFromFile_AllJunkReturnsEmpty(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	payloads, err := CarveMessagesFromFile(f.Name())
+	messages, err := CarveMessagesFromFile(f.Name())
 	require.NoError(t, err)
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
@@ -185,20 +185,20 @@ func TestCarveMessagesFromFile_MultipleMessages(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	payloads, err := CarveMessagesFromFile(f.Name())
+	messages, err := CarveMessagesFromFile(f.Name())
 	require.NoError(t, err)
 
 	var foundFirst, foundSecond bool
-	for _, p := range payloads {
-		switch string(p) {
+	for _, m := range messages {
+		switch string(m.Body) {
 		case "first-message":
 			foundFirst = true
 		case "second-message":
 			foundSecond = true
 		}
 	}
-	assert.True(t, foundFirst && foundSecond, "expected both 'first-message' and 'second-message' payloads; got %d payloads: %q",
-		len(payloads), payloads)
+	assert.True(t, foundFirst && foundSecond, "expected both 'first-message' and 'second-message' payloads; got %d messages: %+v",
+		len(messages), messages)
 }
 
 // ---------------------------------------------------------------------------
@@ -219,16 +219,16 @@ func TestCarveMessagesFromDir_ProcessesSegmentAndWal(t *testing.T) {
 	err = os.WriteFile(filepath.Join(dir, "skip.log"), msg, 0600)
 	require.NoError(t, err)
 
-	payloads, err := CarveMessagesFromDir(dir)
+	messages, err := CarveMessagesFromDir(dir)
 	require.NoError(t, err)
-	// Each of the 2 valid files contributes at least 1 payload.
-	assert.GreaterOrEqual(t, len(payloads), 2)
+	// Each of the 2 valid files contributes at least 1 message.
+	assert.GreaterOrEqual(t, len(messages), 2)
 }
 
 func TestCarveMessagesFromDir_EmptyDirReturnsEmpty(t *testing.T) {
-	payloads, err := CarveMessagesFromDir(t.TempDir())
+	messages, err := CarveMessagesFromDir(t.TempDir())
 	require.NoError(t, err)
-	assert.Empty(t, payloads)
+	assert.Empty(t, messages)
 }
 
 func TestCarveMessagesFromDir_InvalidDirReturnsError(t *testing.T) {
@@ -247,12 +247,12 @@ func TestCarveMessagesFromDir_SkipsBadFilesGracefully(t *testing.T) {
 	err = os.WriteFile(filepath.Join(dir, "bad.segment"), []byte{0x01, 0x02}, 0600)
 	require.NoError(t, err)
 
-	payloads, err := CarveMessagesFromDir(dir)
+	messages, err := CarveMessagesFromDir(dir)
 	require.NoError(t, err)
-	// We should still get payloads from the good file even though bad.segment had no messages.
+	// We should still get messages from the good file even though bad.segment had no messages.
 	found := false
-	for _, p := range payloads {
-		if string(p) == "good" {
+	for _, m := range messages {
+		if string(m.Body) == "good" {
 			found = true
 		}
 	}
@@ -363,4 +363,58 @@ func makeBasicMessageTerm(body []byte) etf.Tuple {
 		etf.Atom("meta"),
 		cmd,
 	}
+}
+
+// makeBasicMessageTermWithProps is like makeBasicMessageTerm but embeds a real
+// encoded-properties binary (content-type + headers) instead of an empty one,
+// so tests can verify properties/headers survive the full carve.
+func makeBasicMessageTermWithProps(t *testing.T, body []byte) etf.Tuple {
+	t.Helper()
+	props := buildEncodedProperties(t, "application/json", "x-recovered", "yes", 2)
+	contentTuple := etf.Tuple{
+		etf.Atom("content"),
+		int64(60),
+		etf.Atom("none"),
+		props,
+		etf.Atom("rabbit_framing_amqp_0_9_1"),
+		etf.List{body},
+	}
+	mcTuple := etf.Tuple{
+		etf.Atom("mc"),
+		etf.Atom("mc_amqpl"),
+		contentTuple,
+		etf.Atom("annotations"),
+	}
+	cmd := etf.Tuple{
+		etf.Atom("e"),
+		int64(1),
+		mcTuple,
+	}
+	return etf.Tuple{
+		etf.Atom("$usr"),
+		etf.Atom("meta"),
+		cmd,
+	}
+}
+
+func TestCarveMessagesFromFile_RecoversHeadersAndProperties(t *testing.T) {
+	dir := t.TempDir()
+	path := writeSegmentFile(t, dir, segmentFileSuffix, makeBasicMessageTermWithProps(t, []byte("with headers")))
+
+	messages, err := CarveMessagesFromFile(path)
+	require.NoError(t, err)
+	require.NotEmpty(t, messages)
+
+	var found bool
+	for _, m := range messages {
+		if string(m.Body) != "with headers" {
+			continue
+		}
+		found = true
+		assert.Equal(t, "application/json", m.ContentType)
+		assert.Equal(t, uint8(2), m.DeliveryMode)
+		require.NotNil(t, m.Headers)
+		assert.Equal(t, "yes", m.Headers["x-recovered"])
+	}
+	assert.True(t, found, "expected to find the 'with headers' message")
 }

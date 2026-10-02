@@ -64,33 +64,33 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
 	// in the main backup dir have been separated into the wal/ subdirectory so
 	// this call only processes .segment files here.
-	segPayloads, err := CarveMessagesFromDir(backupDir)
+	segMessages, err := CarveMessagesFromDir(backupDir)
 	if err != nil {
 		return fmt.Errorf("segment carve phase: %w", err)
 	}
-	log.Printf("[Recovery] Extracted %d payload(s) from segment backup", len(segPayloads))
+	log.Printf("[Recovery] Extracted %d message(s) from segment backup", len(segMessages))
 
 	// Phase 6: Carve messages from backed-up WAL files, filtered to this queue's UID.
-	walPayloads, err := CarveWALMessages(walBackupDir, queueUID)
+	walMessages, err := CarveWALMessages(walBackupDir, queueUID)
 	if err != nil {
 		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
 	}
-	log.Printf("[Recovery] Extracted %d payload(s) from WAL backup", len(walPayloads))
+	log.Printf("[Recovery] Extracted %d message(s) from WAL backup", len(walMessages))
 
 	// Segments are written before WAL entries are flushed, so publish segments first.
-	segCount := len(segPayloads)
-	segPayloads = append(segPayloads, walPayloads...)
-	if len(segPayloads) == 0 {
+	segCount := len(segMessages)
+	segMessages = append(segMessages, walMessages...)
+	if len(segMessages) == 0 {
 		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", queueName)
 		return nil
 	}
 
 	// Phase 7: Republish to default exchange; routing key = queue name.
-	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, segPayloads); err != nil {
+	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, segMessages); err != nil {
 		return fmt.Errorf("republish phase: %w", err)
 	}
 	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
-		len(segPayloads), queueName, segCount, len(walPayloads))
+		len(segMessages), queueName, segCount, len(walMessages))
 
 	return nil
 }

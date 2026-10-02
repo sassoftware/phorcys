@@ -40,7 +40,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("FATAL: Cannot connect to broker: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
 	m := monitor.NewLogMonitorWorker(conn, dm, cfg, cfg.WorkerCount)

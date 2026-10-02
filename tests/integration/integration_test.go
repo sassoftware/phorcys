@@ -22,11 +22,11 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 
 	conn, err := amqp.Dial(amqpClusterURL)
 	require.NoError(t, err, "Failed to connect to cluster: %v", err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()
 	require.NoError(t, err, "Failed to open channel: %v", err)
-	defer ch.Close()
+	defer func() { _ = ch.Close() }()
 
 	// 1. Declare the quorum queue
 	// Note: Quorum queues must always be declared as durable
@@ -52,9 +52,14 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 			false,       // mandatory
 			false,       // immediate
 			amqp.Publishing{
-				ContentType:  "text/plain",
-				Body:         []byte(messageBody),
-				DeliveryMode: amqp.Persistent, // Forces Raft to write to disk segments
+				Headers: amqp.Table{
+					"x-packet-index": i,
+					"x-source":       "integration-test",
+				},
+				ContentType:     "text/plain",
+				ContentEncoding: "utf-8",
+				Body:            []byte(messageBody),
+				DeliveryMode:    amqp.Persistent, // Forces Raft to write to disk segments
 			},
 		)
 		require.NoError(t, err, "Failed to publish message %d: %v", i, err)
