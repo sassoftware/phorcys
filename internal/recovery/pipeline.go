@@ -17,10 +17,11 @@ import (
 //  1. Locate the quorum queue's data directory on disk
 //  2. Back up segment files to a timestamped archive folder
 //  3. Back up WAL files that contain records for this queue (only if any exist)
-//  4. Delete the corrupted queue from the broker
-//  5. Carve recoverable payloads from backed-up segment files
-//  6. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
-//  7. Republish all payloads — segments first, then WAL — to preserve ordering
+//  4. Log the latest Raft term/index found in the backup (cluster-comparison aid)
+//  5. Delete the corrupted queue from the broker
+//  6. Carve recoverable payloads from backed-up segment files
+//  7. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
+//  8. Republish all payloads — segments first, then WAL — to preserve ordering
 func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error {
 	log.Printf("[Recovery] Starting pipeline for queue %s/%s", vhost, queueName)
 
@@ -54,13 +55,25 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 		log.Printf("[Recovery] No WAL records found for UID %s — skipping WAL backup", queueUID)
 	}
 
-	// Phase 4: Delete the corrupted queue from the broker.
+	// Phase 4: Log the latest Raft position in this backup so it can be compared
+	// against other cluster nodes to determine who holds the most recent data.
+	// TODO: this currently runs inline because backup is still part of this
+	// pipeline; once backup is split out, this should move with it.
+	if pos, found, err := LatestQueuePosition(backupDir, walBackupDir, queueUID); err != nil {
+		log.Printf("[Recovery] WARNING: failed to determine latest Raft position (non-fatal): %v", err)
+	} else if found {
+		log.Printf("[Recovery] Latest backed-up Raft position for %s: term=%d idx=%d", queueName, pos.Term, pos.Idx)
+	} else {
+		log.Printf("[Recovery] No Raft position found in backup for %s", queueName)
+	}
+
+	// Phase 5: Delete the corrupted queue from the broker.
 	if err := dm.DeleteOrForceEvict(ctx, vhost, queueName); err != nil {
 		return fmt.Errorf("delete phase: %w", err)
 	}
 	log.Printf("[Recovery] Queue %s deleted from broker", queueName)
 
-	// Phase 5: Carve messages from backed-up segment files.
+	// Phase 6: Carve messages from backed-up segment files.
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
 	// in the main backup dir have been separated into the wal/ subdirectory so
 	// this call only processes .segment files here.
@@ -70,7 +83,7 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	}
 	log.Printf("[Recovery] Extracted %d message(s) from segment backup", len(segMessages))
 
-	// Phase 6: Carve messages from backed-up WAL files, filtered to this queue's UID.
+	// Phase 7: Carve messages from backed-up WAL files, filtered to this queue's UID.
 	walMessages, err := CarveWALMessages(walBackupDir, queueUID)
 	if err != nil {
 		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
@@ -85,7 +98,7 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 		return nil
 	}
 
-	// Phase 7: Republish to default exchange; routing key = queue name.
+	// Phase 8: Republish to default exchange; routing key = queue name.
 	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, segMessages); err != nil {
 		return fmt.Errorf("republish phase: %w", err)
 	}
