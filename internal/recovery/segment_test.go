@@ -165,12 +165,28 @@ type segmentEntry struct {
 // buildSegmentV2 constructs a minimal Ra segment (version 2) byte slice with
 // the given maxCount index-table slots, populated by entries in order.
 func buildSegmentV2(maxCount uint16, entries []segmentEntry) []byte {
+	return buildSegment(2, maxCount, entries)
+}
+
+// buildSegmentV1 constructs a minimal Ra segment (version 1) byte slice.
+func buildSegmentV1(maxCount uint16, entries []segmentEntry) []byte {
+	return buildSegment(1, maxCount, entries)
+}
+
+// buildSegment constructs a minimal Ra segment byte slice for the given
+// version (1 or 2), which only differ in the width of the DataOffset field.
+func buildSegment(version, maxCount uint16, entries []segmentEntry) []byte {
+	recordSize := segmentIndexRecordSizeV2
+	if version == 1 {
+		recordSize = segmentIndexRecordSizeV1
+	}
+
 	out := make([]byte, 0, segmentHeaderSize)
 	out = append(out, segmentMagic...)
-	out = appendUint16(out, 2)
+	out = appendUint16(out, version)
 	out = appendUint16(out, maxCount)
 
-	indexSize := int(maxCount) * segmentIndexRecordSizeV2
+	indexSize := int(maxCount) * recordSize
 	dataStart := segmentHeaderSize + indexSize
 	index := make([]byte, indexSize)
 	var dataBuf []byte
@@ -178,41 +194,18 @@ func buildSegmentV2(maxCount uint16, entries []segmentEntry) []byte {
 	for i, e := range entries {
 		offset := uint64(dataStart + len(dataBuf))
 		crc := crc32.ChecksumIEEE(e.data)
-		rec := index[i*segmentIndexRecordSizeV2 : (i+1)*segmentIndexRecordSizeV2]
+		rec := index[i*recordSize : (i+1)*recordSize]
 		binary.BigEndian.PutUint64(rec[0:8], e.idx)
 		binary.BigEndian.PutUint64(rec[8:16], e.term)
-		binary.BigEndian.PutUint64(rec[16:24], offset)
-		binary.BigEndian.PutUint32(rec[24:28], uint32(len(e.data))) //nolint:gosec
-		binary.BigEndian.PutUint32(rec[28:32], crc)
-		dataBuf = append(dataBuf, e.data...)
-	}
-
-	out = append(out, index...)
-	out = append(out, dataBuf...)
-	return out
-}
-
-// buildSegmentV1 constructs a minimal Ra segment (version 1) byte slice.
-func buildSegmentV1(maxCount uint16, entries []segmentEntry) []byte {
-	out := make([]byte, 0, segmentHeaderSize)
-	out = append(out, segmentMagic...)
-	out = appendUint16(out, 1)
-	out = appendUint16(out, maxCount)
-
-	indexSize := int(maxCount) * segmentIndexRecordSizeV1
-	dataStart := segmentHeaderSize + indexSize
-	index := make([]byte, indexSize)
-	var dataBuf []byte
-
-	for i, e := range entries {
-		offset := uint32(dataStart + len(dataBuf)) //nolint:gosec
-		crc := crc32.ChecksumIEEE(e.data)
-		rec := index[i*segmentIndexRecordSizeV1 : (i+1)*segmentIndexRecordSizeV1]
-		binary.BigEndian.PutUint64(rec[0:8], e.idx)
-		binary.BigEndian.PutUint64(rec[8:16], e.term)
-		binary.BigEndian.PutUint32(rec[16:20], offset)
-		binary.BigEndian.PutUint32(rec[20:24], uint32(len(e.data))) //nolint:gosec
-		binary.BigEndian.PutUint32(rec[24:28], crc)
+		if version == 1 {
+			binary.BigEndian.PutUint32(rec[16:20], uint32(offset))      //nolint:gosec
+			binary.BigEndian.PutUint32(rec[20:24], uint32(len(e.data))) //nolint:gosec
+			binary.BigEndian.PutUint32(rec[24:28], crc)
+		} else {
+			binary.BigEndian.PutUint64(rec[16:24], offset)
+			binary.BigEndian.PutUint32(rec[24:28], uint32(len(e.data))) //nolint:gosec
+			binary.BigEndian.PutUint32(rec[28:32], crc)
+		}
 		dataBuf = append(dataBuf, e.data...)
 	}
 
