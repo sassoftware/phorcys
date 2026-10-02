@@ -192,7 +192,7 @@ func buildSegment(version, maxCount uint16, entries []segmentEntry) []byte {
 	var dataBuf []byte
 
 	for i, e := range entries {
-		offset := uint64(dataStart + len(dataBuf))
+		offset := uint64(dataStart + len(dataBuf)) //nolint:gosec
 		crc := crc32.ChecksumIEEE(e.data)
 		rec := index[i*recordSize : (i+1)*recordSize]
 		binary.BigEndian.PutUint64(rec[0:8], e.idx)
