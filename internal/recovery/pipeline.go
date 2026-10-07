@@ -7,29 +7,45 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
-// Run executes the full automated recovery for a confirmed unrecoverable queue:
+// PreparedRecovery is the output of Prepare: everything Execute needs to
+// finish recovering a queue, plus the RaftPosition a consensus process
+// compares across a queue's member nodes to pick which one calls Execute.
+type PreparedRecovery struct {
+	QueueUID      string
+	BackupDir     string
+	WALBackupDir  string
+	Position      RaftPosition
+	PositionFound bool
+}
+
+// Prepare runs the read-only, non-destructive half of recovery for a
+// confirmed unrecoverable queue (steps 1-4):
 //  1. Locate the quorum queue's data directory on disk
 //  2. Back up segment files to a timestamped archive folder
 //  3. Back up WAL files that contain records for this queue (only if any exist)
-//  4. Log the latest Raft term/index found in the backup (cluster-comparison aid)
-//  5. Delete the corrupted queue from the broker
-//  6. Carve recoverable payloads from backed-up segment files
-//  7. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
-//  8. Republish all payloads — segments first, then WAL — to preserve ordering
-func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error {
-	log.Printf("[Recovery] Starting pipeline for queue %s/%s", vhost, queueName)
+//  4. Determine the latest Raft term/index found in the backup
+//
+// It performs no destructive broker calls, so every node hosting a replica of
+// the queue can call Prepare independently and in parallel; it does publish a
+// RecoveryAnnouncement to ConsensusExchange so the other nodes learn this
+// node's RaftPosition, which a consensus process compares — via
+// RaftPosition.After — to pick which node calls Execute.
+func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (*PreparedRecovery, error) {
+	log.Printf("[Recovery] Preparing pipeline for queue %s/%s", vhost, queueName)
 
 	// Phase 1: Locate the queue's Raft data directory.
 	// The directory basename IS the Ra UID used to identify this queue's records in the WAL.
 	queueDir, err := FindQueueDirectory(cfg.QuorumBasePath, vhost, queueName)
 	if err != nil {
-		return fmt.Errorf("locate phase: %w", err)
+		return nil, fmt.Errorf("locate phase: %w", err)
 	}
 	queueUID := filepath.Base(queueDir)
 	log.Printf("[Recovery] Located quorum data at: %s (UID: %s)", queueDir, queueUID)
@@ -37,7 +53,7 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	// Phase 2: Backup segment files before any destructive operations.
 	backupDir, err := BackupQueueData(queueDir, cfg.BackupBaseDir, vhost, queueName)
 	if err != nil {
-		return fmt.Errorf("backup phase: %w", err)
+		return nil, fmt.Errorf("backup phase: %w", err)
 	}
 	log.Printf("[Recovery] Segment data backed up to: %s", backupDir)
 
@@ -55,11 +71,11 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 		log.Printf("[Recovery] No WAL records found for UID %s — skipping WAL backup", queueUID)
 	}
 
-	// Phase 4: Log the latest Raft position in this backup so it can be compared
-	// against other cluster nodes to determine who holds the most recent data.
-	// TODO: this currently runs inline because backup is still part of this
-	// pipeline; once backup is split out, this should move with it.
-	if pos, found, err := LatestQueuePosition(backupDir, walBackupDir, queueUID); err != nil {
+	// Phase 4: Determine the latest Raft position in this backup so the caller
+	// can compare it against other cluster nodes to decide who holds the most
+	// recent data and should therefore run Execute.
+	pos, found, err := LatestQueuePosition(backupDir, walBackupDir, queueUID)
+	if err != nil {
 		log.Printf("[Recovery] WARNING: failed to determine latest Raft position (non-fatal): %v", err)
 	} else if found {
 		log.Printf("[Recovery] Latest backed-up Raft position for %s: term=%d idx=%d", queueName, pos.Term, pos.Idx)
@@ -67,6 +83,47 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 		log.Printf("[Recovery] No Raft position found in backup for %s", queueName)
 	}
 
+	// Announce this node's position so other nodes hosting the queue can run
+	// their own consensus comparison; a hostname lookup/publish failure must
+	// not block the local backup that already succeeded.
+	hostname, hErr := os.Hostname()
+	if hErr != nil {
+		log.Printf("[Recovery] WARNING: failed to determine hostname (non-fatal): %v", hErr)
+		hostname = "unknown"
+	}
+	ann := RecoveryAnnouncement{
+		Hostname:  hostname,
+		VHost:     vhost,
+		Queue:     queueName,
+		Timestamp: time.Now().UTC(),
+		Term:      pos.Term,
+		Index:     pos.Idx,
+	}
+	if err := PublishRecoveryAnnouncement(ctx, cfg.AMQPURL, ann); err != nil {
+		log.Printf("[Recovery] WARNING: failed to publish recovery announcement (non-fatal): %v", err)
+	}
+
+	return &PreparedRecovery{
+		QueueUID:      queueUID,
+		BackupDir:     backupDir,
+		WALBackupDir:  walBackupDir,
+		Position:      pos,
+		PositionFound: found,
+	}, nil
+}
+
+// Execute runs the destructive half of recovery (steps 5-8) against the
+// backup a prior call to Prepare produced:
+//  5. Delete the corrupted queue from the broker
+//  6. Carve recoverable payloads from backed-up segment files
+//  7. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
+//  8. Republish all payloads — segments first, then WAL — to preserve ordering
+//
+// Callers must only invoke Execute on the single node a consensus process has
+// determined should own recovery for this queue; running it on more than one
+// node would delete the queue out from under the others and double-publish
+// messages.
+func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string, prep *PreparedRecovery) error {
 	// Phase 5: Delete the corrupted queue from the broker.
 	if err := dm.DeleteOrForceEvict(ctx, vhost, queueName); err != nil {
 		return fmt.Errorf("delete phase: %w", err)
@@ -77,14 +134,14 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
 	// in the main backup dir have been separated into the wal/ subdirectory so
 	// this call only processes .segment files here.
-	segMessages, err := CarveMessagesFromDir(backupDir)
+	segMessages, err := CarveMessagesFromDir(prep.BackupDir)
 	if err != nil {
 		return fmt.Errorf("segment carve phase: %w", err)
 	}
 	log.Printf("[Recovery] Extracted %d message(s) from segment backup", len(segMessages))
 
 	// Phase 7: Carve messages from backed-up WAL files, filtered to this queue's UID.
-	walMessages, err := CarveWALMessages(walBackupDir, queueUID)
+	walMessages, err := CarveWALMessages(prep.WALBackupDir, prep.QueueUID)
 	if err != nil {
 		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
 	}
@@ -106,4 +163,18 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 		len(segMessages), queueName, segCount, len(walMessages))
 
 	return nil
+}
+
+// Run performs the full single-node recovery pipeline (Prepare then
+// Execute). It is a convenience for callers that don't need multi-node
+// consensus — on a cluster where every node runs Phorcys, use Prepare and
+// Execute directly so only the node holding the most recent data executes.
+func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error {
+	log.Printf("[Recovery] Starting pipeline for queue %s/%s", vhost, queueName)
+
+	prep, err := Prepare(ctx, cfg, vhost, queueName)
+	if err != nil {
+		return err
+	}
+	return Execute(ctx, cfg, dm, vhost, queueName, prep)
 }
