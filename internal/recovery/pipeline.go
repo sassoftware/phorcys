@@ -75,11 +75,12 @@ func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (
 	// can compare it against other cluster nodes to decide who holds the most
 	// recent data and should therefore run Execute.
 	pos, found, err := LatestQueuePosition(backupDir, walBackupDir, queueUID)
-	if err != nil {
+	switch {
+	case err != nil:
 		log.Printf("[Recovery] WARNING: failed to determine latest Raft position (non-fatal): %v", err)
-	} else if found {
+	case found:
 		log.Printf("[Recovery] Latest backed-up Raft position for %s: term=%d idx=%d", queueName, pos.Term, pos.Idx)
-	} else {
+	default:
 		log.Printf("[Recovery] No Raft position found in backup for %s", queueName)
 	}
 
