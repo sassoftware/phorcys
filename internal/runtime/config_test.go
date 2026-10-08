@@ -36,3 +36,35 @@ func TestGetEnv_EmptyEnvValueUsesFallback(t *testing.T) {
 		assert.Equal(t, "fallback", got, "expected fallback for empty env var, got %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// LoadConfig
+// ---------------------------------------------------------------------------
+
+func TestLoadConfig_ReadsEnv(t *testing.T) {
+	t.Setenv(EnvVarAMQPURL, "amqp://u:p@h:5672/")
+	t.Setenv(EnvVarMgmtURL, "http://h:15672")
+	t.Setenv(EnvVarMgmtUser, "u")
+	t.Setenv(EnvVarMgmtPass, "p")
+	t.Setenv(EnvVarBackupDir, "/backup")
+	t.Setenv(EnvVarQuorumPath, "/quorum")
+
+	cfg := LoadConfig()
+
+	assert.Equal(t, "amqp://u:p@h:5672/", cfg.AMQPURL)
+	assert.Equal(t, "http://h:15672", cfg.ManagementURL)
+	assert.Equal(t, "u", cfg.ManagementUser)
+	assert.Equal(t, "p", cfg.ManagementPassword)
+	assert.Equal(t, "/backup", cfg.BackupBaseDir)
+	assert.Equal(t, "/quorum", cfg.QuorumBasePath)
+	assert.Equal(t, 3, cfg.WorkerCount)
+}
+
+func TestLoadConfig_QuorumPathEmptyWhenUnset(t *testing.T) {
+	t.Setenv(EnvVarQuorumPath, "")
+
+	cfg := LoadConfig()
+
+	assert.Empty(t, cfg.QuorumBasePath)
+	assert.Equal(t, managementURLDefault, cfg.ManagementURL)
+}
