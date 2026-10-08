@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -13,25 +14,24 @@ import (
 
 	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/cmd/recover"
 	"github.com/sassoftware/phorcys/internal/monitor"
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 func main() {
-	cfg := runtime.Config{
-		AMQPURL:            runtime.GetEnv(runtime.EnvVarAMQPURL, "amqp://guest:guest@localhost:5672/"),
-		ManagementURL:      runtime.GetEnv(runtime.EnvVarMgmtURL, "http://localhost:15672"),
-		ManagementUser:     runtime.GetEnv(runtime.EnvVarMgmtUser, "guest"),
-		ManagementPassword: runtime.GetEnv(runtime.EnvVarMgmtPass, "guest"),
-		BackupBaseDir:      runtime.GetEnv(runtime.EnvVarBackupDir, "/var/lib/rabbitmq/phorcys-backups"),
-		WorkerCount:        3,
+	if len(os.Args) > 1 && os.Args[1] == recover.Command {
+		if err := runRecover(os.Args[2:]); err != nil && !errors.Is(err, flag.ErrHelp) {
+			log.Fatalf("FATAL: %v", err)
+		}
+		return
 	}
+
+	cfg := runtime.LoadConfig()
 
 	// If the quorum path is not explicitly set, derive it from the node name reported
 	// by the management API so the default works for any node name (e.g. rabbit@rabbitmq).
-	if path := os.Getenv(runtime.EnvVarQuorumPath); path != "" {
-		cfg.QuorumBasePath = path
-	} else {
+	if cfg.QuorumBasePath == "" {
 		dm0 := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
 		cfg.QuorumBasePath = dm0.ResolveQuorumBasePath(context.Background())
 	}
@@ -54,4 +54,11 @@ func main() {
 		return
 	}
 	log.Println("Phorcys shutdown complete.")
+}
+
+// runRecover executes the "recover" subcommand, cancelling on SIGINT/SIGTERM.
+func runRecover(args []string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	return recover.RunCommand(ctx, args, os.Stdin, os.Stdout)
 }
