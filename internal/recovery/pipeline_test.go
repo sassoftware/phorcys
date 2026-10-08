@@ -99,9 +99,9 @@ func TestExecute_DeletePhaseFailsReturnsError(t *testing.T) {
 	defer server.Close()
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	cfg := runtime.Config{AMQPURL: unreachableAMQPURL}
-	prep := &PreparedRecovery{BackupDir: t.TempDir(), WALBackupDir: t.TempDir()}
+	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: t.TempDir(), WALBackupDir: t.TempDir()}
 
-	err := Execute(context.Background(), cfg, dm, "/", "q", prep)
+	err := Execute(context.Background(), cfg, dm, prep)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "delete phase")
 }
@@ -112,11 +112,13 @@ func TestExecute_SegmentCarveFailsReturnsError(t *testing.T) {
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	cfg := runtime.Config{AMQPURL: unreachableAMQPURL}
 	prep := &PreparedRecovery{
+		Queue:        "q",
+		VHost:        "/",
 		BackupDir:    filepath.Join(t.TempDir(), "does-not-exist"),
 		WALBackupDir: t.TempDir(),
 	}
 
-	err := Execute(context.Background(), cfg, dm, "/", "q", prep)
+	err := Execute(context.Background(), cfg, dm, prep)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "segment carve phase")
 }
@@ -128,9 +130,9 @@ func TestExecute_NoMessagesFoundSkipsRepublishAndSucceeds(t *testing.T) {
 	// AMQPURL is unreachable; if Execute tried to republish it would fail, so
 	// a nil result here proves the zero-message republish phase was skipped.
 	cfg := runtime.Config{AMQPURL: unreachableAMQPURL}
-	prep := &PreparedRecovery{BackupDir: t.TempDir(), WALBackupDir: t.TempDir(), QueueUID: "uid"}
+	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: t.TempDir(), WALBackupDir: t.TempDir(), QueueUID: "uid"}
 
-	err := Execute(context.Background(), cfg, dm, "/", "q", prep)
+	err := Execute(context.Background(), cfg, dm, prep)
 	assert.NoError(t, err)
 }
 
@@ -145,9 +147,9 @@ func TestExecute_MessagesFoundAttemptsRepublish(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(backupDir, "0000000000000001.segment"), msg, 0600))
 
 	cfg := runtime.Config{AMQPURL: unreachableAMQPURL} // republish must fail
-	prep := &PreparedRecovery{BackupDir: backupDir, WALBackupDir: t.TempDir(), QueueUID: "uid"}
+	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: backupDir, WALBackupDir: t.TempDir(), QueueUID: "uid"}
 
-	err = Execute(context.Background(), cfg, dm, "/", "q", prep)
+	err = Execute(context.Background(), cfg, dm, prep)
 	require.Error(t, err, "carved messages should trigger a republish attempt against the unreachable broker")
 	assert.Contains(t, err.Error(), "republish phase")
 }

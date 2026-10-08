@@ -19,6 +19,8 @@ import (
 // finish recovering a queue, plus the RaftPosition a consensus process
 // compares across a queue's member nodes to pick which one calls Execute.
 type PreparedRecovery struct {
+	Queue		  string
+	VHost         string
 	QueueUID      string
 	BackupDir     string
 	WALBackupDir  string
@@ -105,6 +107,8 @@ func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (
 	}
 
 	return &PreparedRecovery{
+		Queue:         queueName,
+		VHost:         vhost,
 		QueueUID:      queueUID,
 		BackupDir:     backupDir,
 		WALBackupDir:  walBackupDir,
@@ -124,12 +128,12 @@ func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (
 // determined should own recovery for this queue; running it on more than one
 // node would delete the queue out from under the others and double-publish
 // messages.
-func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string, prep *PreparedRecovery) error {
+func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, prep *PreparedRecovery) error {
 	// Phase 5: Delete the corrupted queue from the broker.
-	if err := dm.DeleteOrForceEvict(ctx, vhost, queueName); err != nil {
+	if err := dm.DeleteOrForceEvict(ctx, prep.VHost, prep.Queue); err != nil {
 		return fmt.Errorf("delete phase: %w", err)
 	}
-	log.Printf("[Recovery] Queue %s deleted from broker", queueName)
+	log.Printf("[Recovery] Queue %s deleted from broker", prep.Queue)
 
 	// Phase 6: Carve messages from backed-up segment files.
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
@@ -152,16 +156,16 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	segCount := len(segMessages)
 	segMessages = append(segMessages, walMessages...)
 	if len(segMessages) == 0 {
-		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", queueName)
+		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", prep.Queue)
 		return nil
 	}
 
 	// Phase 8: Republish to default exchange; routing key = queue name.
-	if err := RepublishMessages(ctx, cfg.AMQPURL, queueName, segMessages); err != nil {
+	if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, segMessages); err != nil {
 		return fmt.Errorf("republish phase: %w", err)
 	}
 	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
-		len(segMessages), queueName, segCount, len(walMessages))
+		len(segMessages), prep.Queue, segCount, len(walMessages))
 
 	return nil
 }
@@ -177,5 +181,5 @@ func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager,
 	if err != nil {
 		return err
 	}
-	return Execute(ctx, cfg, dm, vhost, queueName, prep)
+	return Execute(ctx, cfg, dm, prep)
 }
