@@ -19,7 +19,7 @@ import (
 // finish recovering a queue, plus the RaftPosition a consensus process
 // compares across a queue's member nodes to pick which one calls Execute.
 type PreparedRecovery struct {
-	Queue		  string
+	Queue         string
 	VHost         string
 	QueueUID      string
 	BackupDir     string
