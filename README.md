@@ -76,6 +76,25 @@ export PHORCYS_BACKUP_DIR="/data/phorcys-backups"
 
 Phorcys runs until it receives `SIGINT` or `SIGTERM`.
 
+### Manual recovery
+
+If a quorum queue is corrupted but was not detected by the log monitor, the
+recovery pipeline can be run on demand. It uses the same environment variables
+as the monitor:
+
+```bash
+./phorcys recover -queue orders -vhost /
+```
+
+| Flag     | Default | Description                                    |
+|----------|---------|------------------------------------------------|
+| `-queue` | —       | Name of the quorum queue to recover (required) |
+| `-vhost` | `/`     | Virtual host of the queue                      |
+| `-yes`   | `false` | Skip the interactive confirmation prompt       |
+
+The queue is **deleted** from the broker before its recovered messages are
+republished, so you are asked to confirm unless `-yes` is passed.
+
 ## Requirements
 
 - RabbitMQ 3.8+ with quorum queues enabled
@@ -89,6 +108,8 @@ Phorcys runs until it receives `SIGINT` or `SIGTERM`.
 phorcys/
 ├── main.go                 # Entry point
 ├── internal/
+│   ├── cmd/
+│   │   └── recover/        # `phorcys recover` manual recovery subcommand
 │   ├── amqpx/
 │   │   ├── amqpx.go        # AMQP Connection/Channel interfaces
 │   │   ├── shim.go         # Adapter over amqp091-go (live broker)

@@ -1,6 +1,6 @@
 module github.com/sassoftware/phorcys
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/DeedleFake/etf v0.0.0-20250818194526-023937b5970e
