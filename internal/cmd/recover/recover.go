@@ -22,8 +22,11 @@ import (
 
 // Overridable for tests.
 var (
-	runPipeline = recovery.Run
-	loadConfig  = runtime.LoadConfig
+	runPipeline         = recovery.Run
+	loadConfig          = runtime.LoadConfig
+	evaluateQueueHealth = func(ctx context.Context, dm *broker.DiagnosticsManager, vhost, queue string) (broker.QueueHealth, error) {
+		return dm.EvaluateQueueHealth(ctx, vhost, queue)
+	}
 )
 
 const Command = "recover"
@@ -76,7 +79,11 @@ func RunCommand(ctx context.Context, args []string, in io.Reader, out io.Writer)
 
 	// Ask for confirmation unless -yes is given.
 	if !*yes {
-		ok, err := confirm(in, out, *vhost, *queue, cfg)
+		qh, err := evaluateQueueHealth(ctx, dm, *vhost, *queue)
+		if err != nil {
+			return fmt.Errorf("failed to evaluate queue health: %w", err)
+		}
+		ok, err := confirm(in, out, *vhost, *queue, qh, cfg)
 		if err != nil {
 			return err
 		}
@@ -94,14 +101,15 @@ func RunCommand(ctx context.Context, args []string, in io.Reader, out io.Writer)
 	return nil
 }
 
-func confirm(in io.Reader, out io.Writer, vhost, queue string, cfg runtime.Config) (bool, error) {
+func confirm(in io.Reader, out io.Writer, vhost, queue string, qh broker.QueueHealth, cfg runtime.Config) (bool, error) {
 	_, _ = fmt.Fprintf(out,
 		"About to recover queue %q in vhost %q.\n"+
+			"  Queue health: %s\n"+
 			"  Quorum data path: %s\n"+
 			"  Backup directory: %s\n"+
 			"The queue will be DELETED from the broker and its recovered messages republished.\n"+
 			"Continue? [y/N]: ",
-		queue, vhost, cfg.QuorumBasePath, cfg.BackupBaseDir)
+		queue, vhost, qh, cfg.QuorumBasePath, cfg.BackupBaseDir)
 
 	line, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

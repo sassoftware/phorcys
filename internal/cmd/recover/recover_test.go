@@ -28,9 +28,14 @@ type call struct {
 func stub(t *testing.T, cfg runtime.Config, pipelineErr error) *[]call {
 	t.Helper()
 	calls := &[]call{}
-	origRun, origLoad := runPipeline, loadConfig
-	t.Cleanup(func() { runPipeline, loadConfig = origRun, origLoad })
+	origRun, origLoad, origEvaluateQueueHealth := runPipeline, loadConfig, evaluateQueueHealth
+	t.Cleanup(func() {
+		runPipeline, loadConfig, evaluateQueueHealth = origRun, origLoad, origEvaluateQueueHealth
+	})
 	loadConfig = func() runtime.Config { return cfg }
+	evaluateQueueHealth = func(_ context.Context, _ *broker.DiagnosticsManager, _, _ string) (broker.QueueHealth, error) {
+		return broker.HealthGreen, nil
+	}
 	runPipeline = func(_ context.Context, c runtime.Config, dm *broker.DiagnosticsManager, vhost, queue string) error {
 		require.NotNil(t, dm)
 		*calls = append(*calls, call{c, vhost, queue})
