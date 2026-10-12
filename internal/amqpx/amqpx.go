@@ -15,6 +15,7 @@ import (
 // Channel is the subset of *amqp.Channel used by Phorcys.
 type Channel interface {
 	Confirm(noWait bool) error
+	ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error
 	NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confirmation
 	QueueDeclare(name string, durable, autoDelete, exclusive, noWait bool, args amqp.Table) (amqp.Queue, error)
 	QueueBind(name, key, exchange string, noWait bool, args amqp.Table) error

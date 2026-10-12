@@ -40,6 +40,17 @@ type Binding struct {
 	Args     amqp.Table
 }
 
+// DeclaredExchange records an ExchangeDeclare call.
+type DeclaredExchange struct {
+	Name       string
+	Kind       string
+	Durable    bool
+	AutoDelete bool
+	Internal   bool
+	NoWait     bool
+	Args       amqp.Table
+}
+
 // Consumer records a Consume call.
 type Consumer struct {
 	Queue     string
@@ -68,10 +79,11 @@ type Publication struct {
 // overridden per zero-based publish index via NackAt, NoConfirmAt, or
 // CloseConfirmsAt.
 type Channel struct {
-	ConfirmErr error
-	DeclareErr error
-	BindErr    error
-	ConsumeErr error
+	ConfirmErr         error
+	ExchangeDeclareErr error
+	DeclareErr         error
+	BindErr            error
+	ConsumeErr         error
 	// PublishErrAt fails the publish at the given index; the message is not recorded.
 	PublishErrAt map[int]error
 	// NackAt negatively acknowledges the publish at the given index.
@@ -89,6 +101,7 @@ type Channel struct {
 	confirmMode   bool
 	confirmNoWait bool
 	confirms      chan amqp.Confirmation
+	exchanges     []DeclaredExchange
 	declared      []DeclaredQueue
 	bindings      []Binding
 	consumers     []Consumer
@@ -119,6 +132,14 @@ func (c *Channel) NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confir
 	defer c.mu.Unlock()
 	c.confirms = confirm
 	return confirm
+}
+
+// ExchangeDeclare implements amqpx.Channel.
+func (c *Channel) ExchangeDeclare(name, kind string, durable, autoDelete, internal, noWait bool, args amqp.Table) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.exchanges = append(c.exchanges, DeclaredExchange{name, kind, durable, autoDelete, internal, noWait, args})
+	return c.ExchangeDeclareErr
 }
 
 // QueueDeclare implements amqpx.Channel.
@@ -205,6 +226,13 @@ func (c *Channel) ConfirmNoWait() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.confirmNoWait
+}
+
+// DeclaredExchanges returns all recorded ExchangeDeclare calls.
+func (c *Channel) DeclaredExchanges() []DeclaredExchange {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]DeclaredExchange(nil), c.exchanges...)
 }
 
 // Declared returns all recorded QueueDeclare calls.

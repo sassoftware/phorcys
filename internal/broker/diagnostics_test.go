@@ -148,6 +148,129 @@ func TestFetchSpecificQueue_NonOKNon500ReturnsError(t *testing.T) {
 	assert.False(t, is500, "is500 must be false for 404")
 }
 
+// ---------------------------------------------------------------------------
+// ResolveQuorumBasePath
+// ---------------------------------------------------------------------------
+
+func TestResolveQuorumBasePath_UsesFirstNodeName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{{Name: "rabbit@n1"}, {Name: "rabbit@n2"}}))
+	}))
+	defer server.Close()
+
+	got := newTestManager(server).ResolveQuorumBasePath(context.Background())
+
+	assert.Equal(t, "/var/lib/rabbitmq/mnesia/rabbit@n1/quorum/rabbit@n1", got)
+}
+
+func TestResolveQuorumBasePath_FallsBackOnAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	got := newTestManager(server).ResolveQuorumBasePath(context.Background())
+
+	assert.Equal(t, "/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost", got)
+}
+
+func TestResolveQuorumBasePath_FallsBackOnEmptyNodeList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer server.Close()
+
+	got := newTestManager(server).ResolveQuorumBasePath(context.Background())
+
+	assert.Equal(t, "/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost", got)
+}
+
+// ---------------------------------------------------------------------------
+// probeQueueGet
+// ---------------------------------------------------------------------------
+
+func TestProbeQueueGet(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"healthy 200", http.StatusOK, "[]", false},
+		{"500 with noproc", http.StatusInternalServerError, `{"reason":"noproc"}`, true},
+		{"400 with noproc", http.StatusBadRequest, `{"reason":"noproc"}`, true},
+		{"500 without noproc", http.StatusInternalServerError, "boom", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/api/queues/%2F/q1/get", r.URL.EscapedPath())
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			assert.Equal(t, tt.want, newTestManager(server).probeQueueGet(context.Background(), "/", "q1"))
+		})
+	}
+}
+
+func TestProbeQueueGet_TransportAndRequestErrorsReturnFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dm := newTestManager(server)
+	server.Close() // connection refused
+
+	assert.False(t, dm.probeQueueGet(context.Background(), "/", "q1"))
+
+	dm.APIURL = "http://bad host/" // invalid URL -> NewRequest error
+	assert.False(t, dm.probeQueueGet(context.Background(), "/", "q1"))
+}
+
+// ---------------------------------------------------------------------------
+// request / transport / decode error paths
+// ---------------------------------------------------------------------------
+
+func TestFetchers_InvalidJSONReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer server.Close()
+	dm := newTestManager(server)
+
+	_, err := dm.fetchNodes(context.Background())
+	require.Error(t, err)
+	_, err = dm.FetchAllQueues(context.Background())
+	require.Error(t, err)
+	_, _, err = dm.fetchSpecificQueue(context.Background(), "/", "q")
+	require.Error(t, err)
+}
+
+func TestFetchers_TransportErrorReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dm := newTestManager(server)
+	server.Close()
+
+	_, err := dm.fetchNodes(context.Background())
+	require.Error(t, err)
+	_, err = dm.FetchAllQueues(context.Background())
+	require.Error(t, err)
+	_, is500, err := dm.fetchSpecificQueue(context.Background(), "/", "q")
+	require.Error(t, err)
+	assert.False(t, is500)
+}
+
+func TestFetchers_InvalidURLReturnsError(t *testing.T) {
+	dm := &DiagnosticsManager{APIURL: "http://bad host/", Client: http.DefaultClient}
+
+	_, err := dm.fetchNodes(context.Background())
+	require.Error(t, err)
+	_, err = dm.FetchAllQueues(context.Background())
+	require.Error(t, err)
+	_, _, err = dm.fetchSpecificQueue(context.Background(), "/", "q")
+	require.Error(t, err)
+}
+
 func newTestManager(server *httptest.Server) *DiagnosticsManager {
 	return &DiagnosticsManager{
 		APIURL:   server.URL,

@@ -34,7 +34,7 @@ type RecoveryAnnouncement struct {
 // PublishRecoveryAnnouncement declares ConsensusExchange and publishes ann to
 // it as JSON.
 func PublishRecoveryAnnouncement(ctx context.Context, amqpURL string, ann RecoveryAnnouncement) error {
-	conn, err := amqp.Dial(amqpURL)
+	conn, err := dialAMQP(amqpURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
 	}
