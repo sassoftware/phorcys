@@ -63,6 +63,13 @@ go build -o phorcys .
 
 ## Running
 
+Ensure the following options are configured within RabbitMQ:
+
+```bash
+log.exchange = true
+log.exchange.level = warning
+```
+
 ```bash
 export PHORCYS_AMQP_URL="amqp://admin:secret@rabbitmq:5672/"
 export PHORCYS_MGMT_URL="http://rabbitmq:15672"
@@ -81,6 +88,10 @@ Phorcys runs until it receives `SIGINT` or `SIGTERM`.
 - RabbitMQ 3.8+ with quorum queues enabled
 - The process must run on the **same host** as the RabbitMQ node (for
   filesystem access to Raft data and `rabbitmqctl` fallback eviction)
+- The user configured by PHORCYS_MGMT_USER and the user embedded in
+  PHORCYS_AMQP_URL must have full(configure, read, write) access
+  to all Virtual Host within RabbitMQ.
+- The RabbitMQ System log exchange must be enabled.
 - Go 1.21+ to build from source
 
 ## Project layout
