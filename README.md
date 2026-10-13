@@ -2,6 +2,11 @@
 
 ![Phorcys for RabbitMQ](logo.jpg)
 
+*Pronunciation: **FAWR**-sis (`/ˈfɔːrsɪs/`)*
+
+> In Greek mythology, Phorcys represents the hidden dangers of the
+> deep sea.
+
 Phorcys is a self-healing recovery service for RabbitMQ **quorum queues**. It
 monitors the broker's internal log exchange for Raft/quorum error signatures,
 evaluates whether a flagged queue is truly unrecoverable, and — when it is —
