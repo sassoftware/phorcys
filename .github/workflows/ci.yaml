@@ -20,7 +20,7 @@ on:
       - main
       - release-*
 env:
-  GO_VERSION: 1.26.9
+  GO_VERSION: 1.27.2
   ARTIFACT_DIR: ./artifacts
   LINT_DIR: ./.github/linters
   COV_DIR: ./artifacts/cov
@@ -117,7 +117,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.11
+          version: latest
           args: --config=${{ env.LINT_DIR }}/golangci-config.yaml --allow-parallel-runners
 
   go-test:
@@ -180,8 +180,8 @@ jobs:
 
       # https://github.com/vladopajic/go-test-coverage/blob/main/README.md#configuration
       - name: Check test coverage
+        uses: vladopajic/go-test-coverage@v2
         if: always()
         id: check-coverage
-        run: |-
-          go install github.com/vladopajic/go-test-coverage/v2@v2.19.0
-          go-test-coverage --config=${{ env.LINT_DIR }}/testcoverage.yml
+        with:
+          config: ${{ env.LINT_DIR }}/testcoverage.yml
