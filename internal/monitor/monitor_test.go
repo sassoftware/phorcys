@@ -142,10 +142,10 @@ func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 
 func TestSyncInventory_OnlyQuorumQueuesCached(t *testing.T) {
 	queues := []broker.RabbitQueue{
-		{Name: "q1", VHost: "/", Type: "quorum"},
-		{Name: "q2", VHost: "/", Type: "classic"},
-		{Name: "q3", VHost: "vh2", Type: "quorum"},
-		{Name: "q4", VHost: "/", Type: "stream"},
+		{Name: "q1", VHost: "/", Type: quorumType},
+		{Name: "q2", VHost: "/", Type: classicType},
+		{Name: "q3", VHost: "vh2", Type: quorumType},
+		{Name: "q4", VHost: "/", Type: streamType},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := json.NewEncoder(w).Encode(queues)
@@ -184,9 +184,9 @@ func TestSyncInventory_EmptyListOnAPIError(t *testing.T) {
 
 func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	// First sync
-	queues1 := []broker.RabbitQueue{{Name: "old.q", VHost: "/", Type: "quorum"}}
+	queues1 := []broker.RabbitQueue{{Name: "old.q", VHost: "/", Type: quorumType}}
 	// Second sync returns a different set
-	queues2 := []broker.RabbitQueue{{Name: "new.q", VHost: "/", Type: "quorum"}}
+	queues2 := []broker.RabbitQueue{{Name: "new.q", VHost: "/", Type: quorumType}}
 
 	callN := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -223,10 +223,10 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	queue := &broker.RabbitQueue{
-		Name: "ok.q", VHost: "/", Type: "quorum",
-		Status: "running", Leader: "rabbit@n1", Node: "rabbit@n1",
+		Name: "ok.q", VHost: "/", Type: quorumType,
+		Status: "running", Leader: testNode, Node: testNode,
 	}
 	server := testutil.TestHealthServer(t, nodes, queue, 0, nil)
 	defer server.Close()

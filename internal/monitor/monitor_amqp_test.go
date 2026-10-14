@@ -32,6 +32,8 @@ const (
 	pollInterval    = 5 * time.Millisecond
 	testNode        = "rabbit@n1"
 	quorumType      = "quorum"
+	classicType     = "classic"
+	streamType      = "stream"
 )
 
 var healthyNodes = []broker.RabbitNode{{Name: testNode, Running: true}}

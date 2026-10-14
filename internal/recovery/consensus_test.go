@@ -16,11 +16,14 @@ import (
 	"github.com/sassoftware/phorcys/internal/amqpx/amqptest"
 )
 
+// testHostname is the broker host recorded in the consensus fixtures below.
+const testHostname = "host1"
+
 func testAnnouncement() RecoveryAnnouncement {
 	return RecoveryAnnouncement{
-		Hostname:  "host1",
+		Hostname:  testHostname,
 		VHost:     "/",
-		Queue:     "orders",
+		Queue:     testQueue,
 		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		Term:      3,
 		Index:     17,
@@ -127,9 +130,9 @@ func TestPublishRecoveryAnnouncement_PublishError(t *testing.T) {
 
 func TestPublishRecoveryAnnouncement_UnreachableBrokerReturnsError(t *testing.T) {
 	ann := RecoveryAnnouncement{
-		Hostname:  "host1",
+		Hostname:  testHostname,
 		VHost:     "/",
-		Queue:     "orders",
+		Queue:     testQueue,
 		Timestamp: time.Now(),
 		Term:      1,
 		Index:     2,
@@ -142,9 +145,9 @@ func TestPublishRecoveryAnnouncement_UnreachableBrokerReturnsError(t *testing.T)
 
 func TestRecoveryAnnouncement_JSONFieldNames(t *testing.T) {
 	ann := RecoveryAnnouncement{
-		Hostname:  "host1",
+		Hostname:  testHostname,
 		VHost:     "/",
-		Queue:     "orders",
+		Queue:     testQueue,
 		Timestamp: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		Term:      7,
 		Index:     42,
@@ -155,9 +158,9 @@ func TestRecoveryAnnouncement_JSONFieldNames(t *testing.T) {
 
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(body, &decoded))
-	assert.Equal(t, "host1", decoded["hostname"])
+	assert.Equal(t, testHostname, decoded["hostname"])
 	assert.Equal(t, "/", decoded["vhost"])
-	assert.Equal(t, "orders", decoded["queue"])
+	assert.Equal(t, testQueue, decoded["queue"])
 	assert.Equal(t, float64(7), decoded["term"])
 	assert.Equal(t, float64(42), decoded["index"])
 	assert.Equal(t, "2026-01-02T03:04:05Z", decoded["timestamp"])
