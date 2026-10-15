@@ -15,6 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Cluster node names used by the fake management API responses below.
+const (
+	testNode1 = "rabbit@n1"
+	testNode2 = "rabbit@n2"
+)
+
 // ---------------------------------------------------------------------------
 // NewDiagnosticsManager
 // ---------------------------------------------------------------------------
@@ -40,8 +46,8 @@ func TestNewDiagnosticsManager_SetsFields(t *testing.T) {
 
 func TestFetchNodes_Success(t *testing.T) {
 	nodes := []RabbitNode{
-		{Name: "rabbit@n1", Running: true},
-		{Name: "rabbit@n2", Running: true},
+		{Name: testNode1, Running: true},
+		{Name: testNode2, Running: true},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := json.NewEncoder(w).Encode(nodes)
@@ -107,7 +113,7 @@ func TestFetchAllQueues_NonOKStatusReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFetchSpecificQueue_Success(t *testing.T) {
-	queue := RabbitQueue{Name: "target.q", VHost: "/", Type: "quorum", Status: "running", Node: "rabbit@n1"}
+	queue := RabbitQueue{Name: "target.q", VHost: "/", Type: "quorum", Status: "running", Node: testNode1}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := json.NewEncoder(w).Encode(queue)
 		require.NoError(t, err)
@@ -154,7 +160,7 @@ func TestFetchSpecificQueue_NonOKNon500ReturnsError(t *testing.T) {
 
 func TestResolveQuorumBasePath_UsesFirstNodeName(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{{Name: "rabbit@n1"}, {Name: "rabbit@n2"}}))
+		require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{{Name: testNode1}, {Name: testNode2}}))
 	}))
 	defer server.Close()
 

@@ -19,6 +19,14 @@ import (
 // testWALPath is the shared WAL fixture used by all integration tests.
 const testWALPath = "testdata/0000000000000002.wal"
 
+// Synthetic queue UIDs used by the hand-built WAL and segment fixtures in the
+// WAL and position tests.
+const (
+	testUIDSingle = "myqueue"
+	testUIDA      = "queue-A"
+	testUIDB      = "queue-B"
+)
+
 // Known properties of the fixture WAL file.
 const (
 	fixtureUID1       = "2F_TESXJJVE92WTS2H"
@@ -71,9 +79,9 @@ func TestParseWALRecords_EmptyWAL(t *testing.T) {
 
 func TestParseWALRecords_SingleUID_AllRecords(t *testing.T) {
 	entries := []walEntry{
-		{uid: "myqueue", idx: 1, term: 1, data: []byte("data-a")},
-		{uid: "myqueue", idx: 2, term: 1, data: []byte("data-b")},
-		{uid: "myqueue", idx: 3, term: 2, data: []byte("data-c")},
+		{uid: testUIDSingle, idx: 1, term: 1, data: []byte("data-a")},
+		{uid: testUIDSingle, idx: 2, term: 1, data: []byte("data-b")},
+		{uid: testUIDSingle, idx: 3, term: 2, data: []byte("data-c")},
 	}
 	path := writeTmp(t, buildWAL(entries, "", false))
 
@@ -81,25 +89,25 @@ func TestParseWALRecords_SingleUID_AllRecords(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, recs, 3)
 	for i, r := range recs {
-		assert.Equalf(t, "myqueue", r.UID, "[%d] UID = %q, want %q", i, r.UID, "myqueue")
+		assert.Equalf(t, testUIDSingle, r.UID, "[%d] UID = %q, want %q", i, r.UID, testUIDSingle)
 		assert.Equalf(t, uint64(i+1), r.Idx, "[%d] Idx = %d, want %d", i, r.Idx, i+1)
 	}
 }
 
 func TestParseWALRecords_FilterByUID(t *testing.T) {
 	entries := []walEntry{
-		{uid: "queue-A", idx: 1, term: 1, data: []byte("a1")},
-		{uid: "queue-B", idx: 1, term: 1, data: []byte("b1")},
-		{uid: "queue-A", idx: 2, term: 1, data: []byte("a2")},
-		{uid: "queue-B", idx: 2, term: 1, data: []byte("b2")},
+		{uid: testUIDA, idx: 1, term: 1, data: []byte("a1")},
+		{uid: testUIDB, idx: 1, term: 1, data: []byte("b1")},
+		{uid: testUIDA, idx: 2, term: 1, data: []byte("a2")},
+		{uid: testUIDB, idx: 2, term: 1, data: []byte("b2")},
 	}
 	path := writeTmp(t, buildWAL(entries, "", false))
 
-	recs, err := ParseWALRecords(path, "queue-A")
+	recs, err := ParseWALRecords(path, testUIDA)
 	require.NoError(t, err)
 	require.Len(t, recs, 2)
 	for _, r := range recs {
-		assert.Equal(t, "queue-A", r.UID, "got record for wrong UID")
+		assert.Equal(t, testUIDA, r.UID, "got record for wrong UID")
 	}
 }
 

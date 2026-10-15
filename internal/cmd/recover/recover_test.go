@@ -20,6 +20,15 @@ import (
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
+// Command-line fixtures shared by the RunCommand tests.
+const (
+	flagQueue     = "-queue"
+	flagVhost     = "-vhost"
+	flagYes       = "-yes"
+	testQueueName = "orders"
+	testVhost     = "prod"
+)
+
 type call struct {
 	cfg          runtime.Config
 	vhost, queue string
@@ -52,12 +61,12 @@ func TestRun_WithYesRunsPipeline(t *testing.T) {
 	calls := stub(t, baseCfg(), nil)
 	var out bytes.Buffer
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders", "-vhost", "prod", "-yes"}, strings.NewReader(""), &out)
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName, flagVhost, testVhost, flagYes}, strings.NewReader(""), &out)
 
 	require.NoError(t, err)
 	require.Len(t, *calls, 1)
-	assert.Equal(t, "prod", (*calls)[0].vhost)
-	assert.Equal(t, "orders", (*calls)[0].queue)
+	assert.Equal(t, testVhost, (*calls)[0].vhost)
+	assert.Equal(t, testQueueName, (*calls)[0].queue)
 	assert.Equal(t, "/q", (*calls)[0].cfg.QuorumBasePath)
 	assert.Contains(t, out.String(), "complete")
 }
@@ -65,7 +74,7 @@ func TestRun_WithYesRunsPipeline(t *testing.T) {
 func TestRun_DefaultVhost(t *testing.T) {
 	calls := stub(t, baseCfg(), nil)
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders", "-yes"}, nil, &bytes.Buffer{})
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName, flagYes}, nil, &bytes.Buffer{})
 
 	require.NoError(t, err)
 	require.Len(t, *calls, 1)
@@ -77,7 +86,7 @@ func TestRun_ConfirmYes(t *testing.T) {
 		calls := stub(t, baseCfg(), nil)
 		var out bytes.Buffer
 
-		err := RunCommand(context.Background(), []string{"-queue", "orders"}, strings.NewReader(answer), &out)
+		err := RunCommand(context.Background(), []string{flagQueue, testQueueName}, strings.NewReader(answer), &out)
 
 		require.NoError(t, err)
 		assert.Len(t, *calls, 1, "answer %q", answer)
@@ -92,7 +101,7 @@ func TestRun_ConfirmDeclined(t *testing.T) {
 		calls := stub(t, baseCfg(), nil)
 		var out bytes.Buffer
 
-		err := RunCommand(context.Background(), []string{"-queue", "orders"}, strings.NewReader(answer), &out)
+		err := RunCommand(context.Background(), []string{flagQueue, testQueueName}, strings.NewReader(answer), &out)
 
 		require.NoError(t, err)
 		assert.Empty(t, *calls, "answer %q", answer)
@@ -107,7 +116,7 @@ func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
 func TestRun_ConfirmReadError(t *testing.T) {
 	calls := stub(t, baseCfg(), nil)
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders"}, errReader{}, &bytes.Buffer{})
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName}, errReader{}, &bytes.Buffer{})
 
 	require.ErrorContains(t, err, "reading confirmation")
 	assert.Empty(t, *calls)
@@ -117,7 +126,7 @@ func TestRun_MissingQueue(t *testing.T) {
 	calls := stub(t, baseCfg(), nil)
 	var out bytes.Buffer
 
-	err := RunCommand(context.Background(), []string{"-yes"}, nil, &out)
+	err := RunCommand(context.Background(), []string{flagYes}, nil, &out)
 
 	require.ErrorContains(t, err, "-queue is required")
 	assert.Empty(t, *calls)
@@ -127,7 +136,7 @@ func TestRun_MissingQueue(t *testing.T) {
 func TestRun_UnexpectedArgs(t *testing.T) {
 	calls := stub(t, baseCfg(), nil)
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders", "extra"}, nil, &bytes.Buffer{})
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName, "extra"}, nil, &bytes.Buffer{})
 
 	require.ErrorContains(t, err, "unexpected arguments: extra")
 	assert.Empty(t, *calls)
@@ -140,13 +149,13 @@ func TestRun_Help(t *testing.T) {
 	err := RunCommand(context.Background(), []string{"-h"}, nil, &out)
 
 	require.ErrorIs(t, err, flag.ErrHelp)
-	assert.Contains(t, out.String(), "-queue")
+	assert.Contains(t, out.String(), flagQueue)
 }
 
 func TestRun_PipelineError(t *testing.T) {
 	stub(t, baseCfg(), errors.New("locate failed"))
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders", "-yes"}, nil, &bytes.Buffer{})
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName, flagYes}, nil, &bytes.Buffer{})
 
 	require.ErrorContains(t, err, "recovery of //orders failed: locate failed")
 }
@@ -162,7 +171,7 @@ func TestRun_ResolvesQuorumPathWhenUnset(t *testing.T) {
 	cfg.ManagementURL = srv.URL
 	calls := stub(t, cfg, nil)
 
-	err := RunCommand(context.Background(), []string{"-queue", "orders", "-yes"}, nil, &bytes.Buffer{})
+	err := RunCommand(context.Background(), []string{flagQueue, testQueueName, flagYes}, nil, &bytes.Buffer{})
 
 	require.NoError(t, err)
 	require.Len(t, *calls, 1)

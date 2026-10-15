@@ -17,15 +17,25 @@ import (
 	"github.com/sassoftware/phorcys/internal/testutil"
 )
 
+// Fixture values for the fake RabbitMQ management API responses. These are
+// declared here rather than reused from the in-package broker tests because
+// this file lives in the external broker_test package.
+const (
+	testNode          = "rabbit@n1"
+	testTypeQuorum    = "quorum"
+	testStatusRunning = "running"
+	testStatusDown    = "down"
+)
+
 // ---------------------------------------------------------------------------
 // EvaluateQueueHealth
 // ---------------------------------------------------------------------------
 
 func TestEvaluateQueueHealth_Green(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	queue := &broker.RabbitQueue{
-		Name: "healthy.q", VHost: "/", Type: "quorum",
-		Status: "running", Leader: "rabbit@n1", Node: "rabbit@n1",
+		Name: "healthy.q", VHost: "/", Type: testTypeQuorum,
+		Status: testStatusRunning, Leader: testNode, Node: testNode,
 	}
 	server := testutil.TestHealthServer(t, nodes, queue, 0, nil)
 	defer server.Close()
@@ -38,7 +48,7 @@ func TestEvaluateQueueHealth_Green(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Transient_MemAlarm(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true, MemAlarm: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true, MemAlarm: true}}
 	server := testutil.TestHealthServer(t, nodes, nil, 0, nil)
 	defer server.Close()
 
@@ -50,7 +60,7 @@ func TestEvaluateQueueHealth_Transient_MemAlarm(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Transient_DiskAlarm(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true, DiskFreeAlarm: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true, DiskFreeAlarm: true}}
 	server := testutil.TestHealthServer(t, nodes, nil, 0, nil)
 	defer server.Close()
 
@@ -62,7 +72,7 @@ func TestEvaluateQueueHealth_Transient_DiskAlarm(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Unrecoverable_Queue500(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	server := testutil.TestHealthServer(t, nodes, nil, http.StatusInternalServerError, nil)
 	defer server.Close()
 
@@ -74,10 +84,10 @@ func TestEvaluateQueueHealth_Unrecoverable_Queue500(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Transient_HostNodeDown(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: false}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: false}}
 	queue := &broker.RabbitQueue{
-		Name: "q1", VHost: "/", Type: "quorum",
-		Status: "running", Node: "rabbit@n1",
+		Name: "q1", VHost: "/", Type: testTypeQuorum,
+		Status: testStatusRunning, Node: testNode,
 	}
 	server := testutil.TestHealthServer(t, nodes, queue, 0, nil)
 	defer server.Close()
@@ -90,14 +100,14 @@ func TestEvaluateQueueHealth_Transient_HostNodeDown(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Unrecoverable_NoLeaderHealthyNeighbors(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	queue := &broker.RabbitQueue{
-		Name: "dead.q", VHost: "/", Type: "quorum",
-		Status: "down", Leader: "", Node: "rabbit@n1",
+		Name: "dead.q", VHost: "/", Type: testTypeQuorum,
+		Status: testStatusDown, Leader: "", Node: testNode,
 	}
 	allQueues := []broker.RabbitQueue{
 		*queue,
-		{Name: "alive.q", VHost: "/", Type: "quorum", Status: "running", Node: "rabbit@n1"},
+		{Name: "alive.q", VHost: "/", Type: testTypeQuorum, Status: testStatusRunning, Node: testNode},
 	}
 	server := testutil.TestHealthServer(t, nodes, queue, 0, allQueues)
 	defer server.Close()
@@ -110,14 +120,14 @@ func TestEvaluateQueueHealth_Unrecoverable_NoLeaderHealthyNeighbors(t *testing.T
 }
 
 func TestEvaluateQueueHealth_Transient_AllNeighborsDown(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	queue := &broker.RabbitQueue{
-		Name: "q1", VHost: "/", Type: "quorum",
-		Status: "down", Leader: "", Node: "rabbit@n1",
+		Name: "q1", VHost: "/", Type: testTypeQuorum,
+		Status: testStatusDown, Leader: "", Node: testNode,
 	}
 	allQueues := []broker.RabbitQueue{
 		*queue,
-		{Name: "q2", VHost: "/", Type: "quorum", Status: "down", Node: "rabbit@n1"},
+		{Name: "q2", VHost: "/", Type: testTypeQuorum, Status: testStatusDown, Node: testNode},
 	}
 	server := testutil.TestHealthServer(t, nodes, queue, 0, allQueues)
 	defer server.Close()
@@ -130,10 +140,10 @@ func TestEvaluateQueueHealth_Transient_AllNeighborsDown(t *testing.T) {
 }
 
 func TestEvaluateQueueHealth_Unrecoverable_LeaderNone(t *testing.T) {
-	nodes := []broker.RabbitNode{{Name: "rabbit@n1", Running: true}}
+	nodes := []broker.RabbitNode{{Name: testNode, Running: true}}
 	queue := &broker.RabbitQueue{
-		Name: "q1", VHost: "/", Type: "quorum",
-		Status: "down", Leader: "none", Node: "rabbit@n1",
+		Name: "q1", VHost: "/", Type: testTypeQuorum,
+		Status: testStatusDown, Leader: "none", Node: testNode,
 	}
 	// no neighbors → neighborsTotal=0, so goes straight to Unrecoverable
 	allQueues := []broker.RabbitQueue{*queue}

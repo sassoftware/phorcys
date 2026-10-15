@@ -66,11 +66,11 @@ func TestLatestQueuePosition_SegmentOnly(t *testing.T) {
 func TestLatestQueuePosition_WALOnly_FiltersByUID(t *testing.T) {
 	walDir := t.TempDir()
 	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
-		{uid: "queue-A", idx: 5, term: 1, data: []byte("a1")},
-		{uid: "queue-B", idx: 99, term: 9, data: []byte("b1")}, // higher, but different queue
+		{uid: testUIDA, idx: 5, term: 1, data: []byte("a1")},
+		{uid: testUIDB, idx: 99, term: 9, data: []byte("b1")}, // higher, but different queue
 	})
 
-	pos, found, err := LatestQueuePosition("", walDir, "queue-A")
+	pos, found, err := LatestQueuePosition("", walDir, testUIDA)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, RaftPosition{Idx: 5, Term: 1}, pos)
@@ -83,10 +83,10 @@ func TestLatestQueuePosition_CombinesSegmentAndWAL_HigherTermWins(t *testing.T) 
 		{idx: 1000, term: 1, data: []byte("seg")},
 	})
 	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
-		{uid: "queue-A", idx: 2, term: 3, data: []byte("wal")}, // lower idx but newer term
+		{uid: testUIDA, idx: 2, term: 3, data: []byte("wal")}, // lower idx but newer term
 	})
 
-	pos, found, err := LatestQueuePosition(segDir, walDir, "queue-A")
+	pos, found, err := LatestQueuePosition(segDir, walDir, testUIDA)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, RaftPosition{Idx: 2, Term: 3}, pos)
@@ -99,10 +99,10 @@ func TestLatestQueuePosition_CombinesSegmentAndWAL_SegmentWinsOnTermTie(t *testi
 		{idx: 50, term: 2, data: []byte("seg")},
 	})
 	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
-		{uid: "queue-A", idx: 10, term: 2, data: []byte("wal")},
+		{uid: testUIDA, idx: 10, term: 2, data: []byte("wal")},
 	})
 
-	pos, found, err := LatestQueuePosition(segDir, walDir, "queue-A")
+	pos, found, err := LatestQueuePosition(segDir, walDir, testUIDA)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, RaftPosition{Idx: 50, Term: 2}, pos)
@@ -149,10 +149,10 @@ func TestLatestQueuePosition_CorruptedWALFileSkippedNotFatal(t *testing.T) {
 	walDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(walDir, "0000000000000001.wal"), []byte{0xe0, 0xfa, 0x32, 0xb1}, 0600))
 	writeWALBackup(t, walDir, "0000000000000002.wal", []walEntry{
-		{uid: "queue-A", idx: 3, term: 1, data: []byte("good")},
+		{uid: testUIDA, idx: 3, term: 1, data: []byte("good")},
 	})
 
-	pos, found, err := LatestQueuePosition("", walDir, "queue-A")
+	pos, found, err := LatestQueuePosition("", walDir, testUIDA)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, RaftPosition{Idx: 3, Term: 1}, pos)
@@ -176,7 +176,7 @@ func TestLatestQueuePosition_AllWALFilesCorrupted_NotFoundNoError(t *testing.T) 
 	walDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(walDir, "0000000000000001.wal"), []byte{0xe0, 0xfa, 0x32, 0xb1}, 0600))
 
-	pos, found, err := LatestQueuePosition("", walDir, "queue-A")
+	pos, found, err := LatestQueuePosition("", walDir, testUIDA)
 	require.NoError(t, err)
 	assert.False(t, found)
 	assert.Equal(t, RaftPosition{}, pos)
