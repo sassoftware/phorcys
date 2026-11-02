@@ -5,6 +5,7 @@ package recovery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -15,9 +16,13 @@ import (
 
 	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/amqpx/amqptest"
+	"github.com/sassoftware/phorcys/internal/broker"
 )
 
 const testQueue = "orders"
+
+const maxLength = "x-max-length"
+const queueType = "x-queue-type"
 
 // useFakeBroker swaps dialAMQP for the duration of the test and records the dialed URL.
 func useFakeBroker(t *testing.T, conn *amqptest.Connection, dialErr error) *string {
@@ -45,7 +50,7 @@ func TestRepublishMessages_PublishesAllPayloadsWithConfirms(t *testing.T) {
 		{Body: []byte("three")},
 	}
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, messages)
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, messages)
 
 	require.NoError(t, err)
 	assert.Equal(t, "amqp://fake/", *dialedURL)
@@ -57,7 +62,8 @@ func TestRepublishMessages_PublishesAllPayloadsWithConfirms(t *testing.T) {
 	assert.True(t, declared[0].Durable)
 	assert.False(t, declared[0].AutoDelete)
 	assert.False(t, declared[0].Exclusive)
-	assert.True(t, declared[0].NoWait)
+	assert.False(t, declared[0].NoWait)
+	assert.Equal(t, amqp.Table{queueType: quorumType}, declared[0].Args, "no definition recovered: falls back to minimal quorum-only args")
 
 	published := ch.Published()
 	require.Len(t, published, len(messages))
@@ -79,7 +85,7 @@ func TestRepublishMessages_EmptyPayloadsPublishesNothing(t *testing.T) {
 	conn := amqptest.NewConnection(ch)
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil)
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, nil)
 
 	require.NoError(t, err)
 	assert.Empty(t, ch.Published())
@@ -91,7 +97,7 @@ func TestRepublishMessages_DialError(t *testing.T) {
 	dialErr := errors.New("connection refused")
 	useFakeBroker(t, nil, dialErr)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, dialErr)
 	assert.ErrorContains(t, err, "failed to connect to broker")
@@ -102,7 +108,7 @@ func TestRepublishMessages_ChannelError(t *testing.T) {
 	conn := &amqptest.Connection{ChannelErr: chErr}
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, chErr)
 	assert.ErrorContains(t, err, "failed to open channel")
@@ -115,7 +121,7 @@ func TestRepublishMessages_ConfirmModeError(t *testing.T) {
 	conn := amqptest.NewConnection(ch)
 	useFakeBroker(t, conn, nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, confirmErr)
 	assert.ErrorContains(t, err, "failed to enable publisher confirmations")
@@ -129,7 +135,7 @@ func TestRepublishMessages_QueueDeclareError(t *testing.T) {
 	ch := &amqptest.Channel{DeclareErr: declareErr}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, []amqp.Publishing{{Body: []byte("x")}})
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil, []amqp.Publishing{{Body: []byte("x")}})
 
 	require.ErrorIs(t, err, declareErr)
 	assert.ErrorContains(t, err, "failed to recreate queue")
@@ -141,7 +147,7 @@ func TestRepublishMessages_PublishErrorStopsPublishing(t *testing.T) {
 	ch := &amqptest.Channel{PublishErrAt: map[int]error{1: pubErr}}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil,
 		[]amqp.Publishing{
 			{Body: []byte("a")},
 			{Body: []byte("b")},
@@ -158,7 +164,7 @@ func TestRepublishMessages_NackStopsPublishing(t *testing.T) {
 	ch := &amqptest.Channel{NackAt: map[int]bool{1: true}}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil,
 		[]amqp.Publishing{
 			{Body: []byte("a")},
 			{Body: []byte("b")},
@@ -174,7 +180,7 @@ func TestRepublishMessages_ConfirmChannelClosed(t *testing.T) {
 	ch := &amqptest.Channel{CloseConfirmsAt: map[int]bool{0: true}}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue,
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, nil,
 		[]amqp.Publishing{
 			{Body: []byte("a")},
 			{Body: []byte("b")},
@@ -191,7 +197,7 @@ func TestRepublishMessages_ContextCancelledWhileAwaitingConfirm(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
-	err := RepublishMessages(ctx, "amqp://fake/", testQueue,
+	err := RepublishMessages(ctx, "amqp://fake/", testQueue, nil,
 		[]amqp.Publishing{
 			{Body: []byte("a")},
 			{Body: []byte("b")},
@@ -206,7 +212,7 @@ func TestRepublishMessages_ContextCancelledWhileAwaitingConfirm(t *testing.T) {
 // The test below exercises the real dialer against an unreachable broker.
 
 func TestRepublishMessages_InvalidURLReturnsError(t *testing.T) {
-	err := RepublishMessages(context.Background(), "amqp://invalid.host.test:5672/", "q", []amqp.Publishing{{Body: []byte("x")}})
+	err := RepublishMessages(context.Background(), "amqp://invalid.host.test:5672/", "q", nil, []amqp.Publishing{{Body: []byte("x")}})
 	assert.Error(t, err, "expected error when broker is unreachable")
 }
 
@@ -214,8 +220,8 @@ func TestRepublishMessages_EmptyPayloadsConnectsButPublishesNothing(t *testing.T
 	// With an unreachable URL the connection itself fails, so we can't test the
 	// empty-payload fast-path without a live broker. We verify that a nil/empty
 	// slice does not panic when passed.
-	_ = RepublishMessages(context.Background(), "amqp://127.0.0.1:1/", "q", nil)
-	_ = RepublishMessages(context.Background(), "amqp://127.0.0.1:1/", "q", []amqp.Publishing{})
+	_ = RepublishMessages(context.Background(), "amqp://127.0.0.1:1/", "q", nil, nil)
+	_ = RepublishMessages(context.Background(), "amqp://127.0.0.1:1/", "q", nil, []amqp.Publishing{})
 }
 
 func TestWaitForPublishConfirmation_Acknowledged(t *testing.T) {
@@ -253,4 +259,126 @@ func TestWaitForPublishConfirmation_ContextCancellation(t *testing.T) {
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.ErrorContains(t, err, "message 1")
+}
+
+// ---------------------------------------------------------------------------
+// RepublishMessages — definition-driven declare/bind
+// ---------------------------------------------------------------------------
+
+func TestRepublishMessages_DeclaresFromDefinitionArgsAndDurability(t *testing.T) {
+	ch := amqptest.NewChannel()
+	conn := amqptest.NewConnection(ch)
+	useFakeBroker(t, conn, nil)
+
+	def := &QueueDefinition{
+		Durable:    false,
+		AutoDelete: true,
+		Arguments:  map[string]any{queueType: quorumType, maxLength: json.Number("1000")},
+	}
+
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, def, nil)
+	require.NoError(t, err)
+
+	declared := ch.Declared()
+	require.Len(t, declared, 1)
+	assert.False(t, declared[0].Durable)
+	assert.True(t, declared[0].AutoDelete)
+	assert.Equal(t, int64(1000), declared[0].Args[maxLength])
+	assert.Equal(t, quorumType, declared[0].Args[queueType])
+}
+
+func TestRepublishMessages_AddsQueueTypeWhenMissingFromDefinition(t *testing.T) {
+	ch := amqptest.NewChannel()
+	conn := amqptest.NewConnection(ch)
+	useFakeBroker(t, conn, nil)
+
+	def := &QueueDefinition{Durable: true, Arguments: map[string]any{}}
+
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, def, nil)
+	require.NoError(t, err)
+
+	declared := ch.Declared()
+	require.Len(t, declared, 1)
+	assert.Equal(t, quorumType, declared[0].Args[queueType])
+}
+
+func TestRepublishMessages_RecreatesBindingsFromDefinition(t *testing.T) {
+	ch := amqptest.NewChannel()
+	conn := amqptest.NewConnection(ch)
+	useFakeBroker(t, conn, nil)
+
+	def := &QueueDefinition{
+		Durable: true,
+		Bindings: []broker.QueueBinding{
+			{Source: testExchange, Destination: testQueue, DestinationType: queueArg, RoutingKey: testRK},
+			{Source: "audit-exchange", Destination: testQueue, DestinationType: queueArg, RoutingKey: "audit.rk",
+				Arguments: map[string]any{"x-match": "all"}},
+		},
+	}
+
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, def, nil)
+	require.NoError(t, err)
+
+	bindings := ch.Bindings()
+	require.Len(t, bindings, 2)
+	assert.Equal(t, testExchange, bindings[0].Exchange)
+	assert.Equal(t, testRK, bindings[0].Key)
+	assert.Equal(t, "audit-exchange", bindings[1].Exchange)
+	assert.Equal(t, "all", bindings[1].Args["x-match"])
+}
+
+func TestRepublishMessages_BindErrorReturnsError(t *testing.T) {
+	bindErr := errors.New("binding precondition failed")
+	ch := &amqptest.Channel{BindErr: bindErr}
+	conn := amqptest.NewConnection(ch)
+	useFakeBroker(t, conn, nil)
+
+	def := &QueueDefinition{
+		Durable:  true,
+		Bindings: []broker.QueueBinding{{Source: "orders-exchange", Destination: testQueue, RoutingKey: testRK}},
+	}
+
+	err := RepublishMessages(context.Background(), "amqp://fake/", testQueue, def, nil)
+	require.ErrorIs(t, err, bindErr)
+	assert.ErrorContains(t, err, "failed to recreate binding from exchange")
+}
+
+// ---------------------------------------------------------------------------
+// toAMQPTable
+// ---------------------------------------------------------------------------
+
+func TestToAMQPTable_ConvertsJSONNumberIntAndFloat(t *testing.T) {
+	out := toAMQPTable(map[string]any{
+		"int-like":   json.Number("42"),
+		"float-like": json.Number("3.14"),
+	})
+	assert.Equal(t, int64(42), out["int-like"])
+	assert.Equal(t, 3.14, out["float-like"])
+}
+
+func TestToAMQPTable_ConvertsNestedMapsAndArrays(t *testing.T) {
+	out := toAMQPTable(map[string]any{
+		"nested": map[string]any{"x-match": "all", "count": json.Number("2")},
+		"list":   []any{json.Number("1"), "two"},
+	})
+
+	nested, ok := out["nested"].(amqp.Table)
+	require.True(t, ok, "nested map must become amqp.Table, got %T", out["nested"])
+	assert.Equal(t, "all", nested["x-match"])
+	assert.Equal(t, int64(2), nested["count"])
+
+	list, ok := out["list"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, int64(1), list[0])
+	assert.Equal(t, "two", list[1])
+}
+
+func TestToAMQPTable_NilArgsReturnsEmptyTable(t *testing.T) {
+	assert.Equal(t, amqp.Table{}, toAMQPTable(nil))
+}
+
+func TestToAMQPTable_PassesThroughBoolAndString(t *testing.T) {
+	out := toAMQPTable(map[string]any{"flag": true, "name": "orders"})
+	assert.Equal(t, true, out["flag"])
+	assert.Equal(t, "orders", out["name"])
 }

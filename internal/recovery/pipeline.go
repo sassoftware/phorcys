@@ -26,21 +26,24 @@ type PreparedRecovery struct {
 	WALBackupDir  string
 	Position      RaftPosition
 	PositionFound bool
+	Definition    *QueueDefinition
 }
 
 // Prepare runs the read-only, non-destructive half of recovery for a
-// confirmed unrecoverable queue (steps 1-4):
+// confirmed unrecoverable queue (steps 1-5):
 //  1. Locate the quorum queue's data directory on disk
 //  2. Back up segment files to a timestamped archive folder
 //  3. Back up WAL files that contain records for this queue (only if any exist)
-//  4. Determine the latest Raft term/index found in the backup
+//  4. Capture the queue's definition (declare arguments and bindings), so it can
+//     be recreated after deletion
+//  5. Determine the latest Raft term/index found in the backup
 //
 // It performs no destructive broker calls, so every node hosting a replica of
 // the queue can call Prepare independently and in parallel; it does publish a
 // RecoveryAnnouncement to ConsensusExchange so the other nodes learn this
 // node's RaftPosition, which a consensus process compares — via
 // RaftPosition.After — to pick which node calls Execute.
-func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (*PreparedRecovery, error) {
+func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) (*PreparedRecovery, error) {
 	log.Printf("[Recovery] Preparing pipeline for queue %s/%s", vhost, queueName)
 
 	// Phase 1: Locate the queue's Raft data directory.
@@ -73,7 +76,25 @@ func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (
 		log.Printf("[Recovery] No WAL records found for UID %s — skipping WAL backup", queueUID)
 	}
 
-	// Phase 4: Determine the latest Raft position in this backup so the caller
+	// Phase 4: Capture the queue's definition (declare arguments and bindings)
+	// from the broker's metadata store. A failure here is non-fatal: Execute
+	// falls back to a minimal quorum-only declare and logs a warning when no
+	// definition is found on disk.
+	def, defErr := FetchDefinition(ctx, dm, vhost, queueName)
+	switch {
+	case defErr != nil:
+		log.Printf("[Recovery] WARNING: failed to fetch queue definition (non-fatal): %v", defErr)
+	case def == nil:
+		log.Printf("[Recovery] WARNING: queue %s not found in /api/definitions/%s — original arguments cannot be recovered", queueName, vhost)
+	default:
+		if err := SaveDefinition(backupDir, def); err != nil {
+			log.Printf("[Recovery] WARNING: failed to persist queue definition (non-fatal): %v", err)
+		} else {
+			log.Printf("[Recovery] Captured queue definition for %s (%d binding(s))", queueName, len(def.Bindings))
+		}
+	}
+
+	// Phase 5: Determine the latest Raft position in this backup so the caller
 	// can compare it against other cluster nodes to decide who holds the most
 	// recent data and should therefore run Execute.
 	pos, found, err := LatestQueuePosition(backupDir, walBackupDir, queueUID)
@@ -114,28 +135,30 @@ func Prepare(ctx context.Context, cfg runtime.Config, vhost, queueName string) (
 		WALBackupDir:  walBackupDir,
 		Position:      pos,
 		PositionFound: found,
+		Definition:    def,
 	}, nil
 }
 
-// Execute runs the destructive half of recovery (steps 5-8) against the
+// Execute runs the destructive half of recovery (steps 6-9) against the
 // backup a prior call to Prepare produced:
-//  5. Delete the corrupted queue from the broker
-//  6. Carve recoverable payloads from backed-up segment files
-//  7. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
-//  8. Republish all payloads — segments first, then WAL — to preserve ordering
+//  6. Delete the corrupted queue from the broker
+//  7. Carve recoverable payloads from backed-up segment files
+//  8. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
+//  9. Recreate the queue (and its bindings) from the captured definition, then
+//     republish all payloads — segments first, then WAL — to preserve ordering
 //
 // Callers must only invoke Execute on the single node a consensus process has
 // determined should own recovery for this queue; running it on more than one
 // node would delete the queue out from under the others and double-publish
 // messages.
 func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, prep *PreparedRecovery) error {
-	// Phase 5: Delete the corrupted queue from the broker.
+	// Phase 6: Delete the corrupted queue from the broker.
 	if err := dm.DeleteOrForceEvict(ctx, prep.VHost, prep.Queue); err != nil {
 		return fmt.Errorf("delete phase: %w", err)
 	}
 	log.Printf("[Recovery] Queue %s deleted from broker", prep.Queue)
 
-	// Phase 6: Carve messages from backed-up segment files.
+	// Phase 7: Carve messages from backed-up segment files.
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
 	// in the main backup dir have been separated into the wal/ subdirectory so
 	// this call only processes .segment files here.
@@ -145,7 +168,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	}
 	log.Printf("[Recovery] Extracted %d message(s) from segment backup", len(segMessages))
 
-	// Phase 7: Carve messages from backed-up WAL files, filtered to this queue's UID.
+	// Phase 8: Carve messages from backed-up WAL files, filtered to this queue's UID.
 	walMessages, err := CarveWALMessages(prep.WALBackupDir, prep.QueueUID)
 	if err != nil {
 		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
@@ -160,8 +183,16 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 		return nil
 	}
 
-	// Phase 8: Republish to default exchange; routing key = queue name.
-	if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, segMessages); err != nil {
+	// Load the definition captured by Prepare from disk rather than
+	// prep.Definition, so Execute still works after a restart or on another node.
+	def, err := LoadDefinition(prep.BackupDir)
+	if err != nil {
+		log.Printf("[Recovery] WARNING: failed to load queue definition (non-fatal): %v", err)
+	}
+
+	// Phase 9: Recreate the queue (and its bindings) from def, then republish
+	// to the default exchange; routing key = queue name.
+	if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, def, segMessages); err != nil {
 		return fmt.Errorf("republish phase: %w", err)
 	}
 	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
@@ -177,7 +208,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 func Run(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error {
 	log.Printf("[Recovery] Starting pipeline for queue %s/%s", vhost, queueName)
 
-	prep, err := Prepare(ctx, cfg, vhost, queueName)
+	prep, err := Prepare(ctx, cfg, dm, vhost, queueName)
 	if err != nil {
 		return err
 	}
