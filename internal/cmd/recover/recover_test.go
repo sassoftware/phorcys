@@ -162,7 +162,7 @@ func TestRun_PipelineError(t *testing.T) {
 
 func TestRun_ResolvesQuorumPathWhenUnset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[{"name":"rabbit@node1","running":true}]`))
+		_, _ = w.Write([]byte(`{"node":"rabbit@node1"}`))
 	}))
 	defer srv.Close()
 

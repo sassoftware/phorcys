@@ -24,6 +24,7 @@ import (
 )
 
 const peerHost = "peer-node"
+const selfNode = "rabbit@self-node"
 
 // ---------------------------------------------------------------------------
 // SelectRecoveryNode
@@ -268,7 +269,7 @@ func recoverFixture(t *testing.T, cs *consensusServer, timeout time.Duration) *C
 }
 
 func TestCoordinator_Recover_SingleMemberExecutes(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node"}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode}, http.StatusOK)
 	c := recoverFixture(t, cs, time.Minute)
 
 	require.NoError(t, c.Recover(context.Background(), "/", testQueue))
@@ -279,7 +280,7 @@ func TestCoordinator_Recover_SingleMemberExecutes(t *testing.T) {
 }
 
 func TestCoordinator_Recover_LosesToPeerWithNewerPosition(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node", "rabbit@" + peerHost}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost}, http.StatusOK)
 	c := recoverFixture(t, cs, time.Minute)
 	c.record(RecoveryAnnouncement{Hostname: peerHost, VHost: "/", Queue: testQueue, Timestamp: time.Now(), Term: 3, Index: 1})
 
@@ -314,7 +315,7 @@ func TestCoordinator_Recover_TieGoesToAlphabeticallyFirstHostname(t *testing.T) 
 }
 
 func TestCoordinator_Recover_WaitsForPeerAnnouncement(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node", "rabbit@" + peerHost}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost}, http.StatusOK)
 	c := recoverFixture(t, cs, time.Minute)
 
 	go func() {
@@ -328,7 +329,7 @@ func TestCoordinator_Recover_WaitsForPeerAnnouncement(t *testing.T) {
 }
 
 func TestCoordinator_Recover_TimesOutAndDecidesWithoutMissingPeer(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node", "rabbit@" + peerHost}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost}, http.StatusOK)
 	c := recoverFixture(t, cs, 50*time.Millisecond)
 
 	require.NoError(t, c.Recover(context.Background(), "/", testQueue))
@@ -337,7 +338,7 @@ func TestCoordinator_Recover_TimesOutAndDecidesWithoutMissingPeer(t *testing.T) 
 }
 
 func TestCoordinator_Recover_ContextCancelledWhileWaiting(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node", "rabbit@" + peerHost}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost}, http.StatusOK)
 	c := recoverFixture(t, cs, time.Minute)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -356,7 +357,7 @@ func TestCoordinator_Recover_AlreadyInProgressIsNoOp(t *testing.T) {
 }
 
 func TestCoordinator_Recover_PrepareErrorIsReturned(t *testing.T) {
-	cs := newConsensusServer(t, []string{"rabbit@self-node"}, http.StatusOK)
+	cs := newConsensusServer(t, []string{selfNode}, http.StatusOK)
 	c := newTestCoordinator(nil, &broker.DiagnosticsManager{APIURL: cs.URL, Client: cs.Client()},
 		runtime.Config{QuorumBasePath: t.TempDir(), BackupBaseDir: t.TempDir()})
 
@@ -390,7 +391,7 @@ func TestCoordinator_Recover_MemberLookupFailureIsReturned(t *testing.T) {
 func TestCoordinator_Respond_SkipsQueueThatIsNotUnrecoverable(t *testing.T) {
 	// A node with a memory alarm makes EvaluateQueueHealth report a transient state.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode([]broker.RabbitNode{{Name: "rabbit@self-node", Running: true, MemAlarm: true}})
+		_ = json.NewEncoder(w).Encode([]broker.RabbitNode{{Name: selfNode, Running: true, MemAlarm: true}})
 	}))
 	defer srv.Close()
 	// Nil quorum config: Prepare would fail with "locate phase" if reached, and Recover would register in-flight.
@@ -413,7 +414,7 @@ func TestCoordinator_Respond_HealthErrorIsLoggedNotFatal(t *testing.T) {
 
 func TestCoordinator_Respond_UnrecoverableQueueJoinsRound(t *testing.T) {
 	// The queue endpoint 500s: health is unrecoverable and members fall back to /api/nodes.
-	cs := newConsensusServer(t, []string{"rabbit@self-node"}, http.StatusInternalServerError)
+	cs := newConsensusServer(t, []string{selfNode}, http.StatusInternalServerError)
 	c := recoverFixture(t, cs, time.Minute)
 
 	c.respond(context.Background(), "/", testQueue)

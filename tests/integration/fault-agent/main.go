@@ -84,6 +84,11 @@ func run() error {
 		return fmt.Errorf("failed to declare classic trigger queue: %w", err)
 	}
 
+	err = ch.QueueBind(triggerQueue, "", "amq.fanout", false, nil)
+	if err != nil {
+		return fmt.Errorf("failed to bind trigger queue to fanout exchange: %w", err)
+	}
+
 	msgs, err := ch.Consume(
 		triggerQueue,
 		"",    // consumer tags

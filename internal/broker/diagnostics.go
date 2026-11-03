@@ -135,16 +135,20 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 // HTTP API HELPER METHODS
 // ============================================================================
 
-// ResolveQuorumBasePath fetches the first node name from the management API and derives the
-// standard quorum storage path from it. Falls back to rabbit@localhost if the API is unreachable.
+// ResolveQuorumBasePath fetches the name of the node serving the management API request
+// (/api/overview "node") and derives the standard quorum storage path from it. /api/nodes is
+// not used because it lists every cluster member in arbitrary order. Falls back to
+// rabbit@localhost if the API is unreachable.
 func (dm *DiagnosticsManager) ResolveQuorumBasePath(ctx context.Context) string {
 	const baseMnesia = "/var/lib/rabbitmq/mnesia"
-	nodes, err := dm.fetchNodes(ctx)
-	if err != nil || len(nodes) == 0 {
+	overview, err := fetchJSON[struct {
+		Node string `json:"node"`
+	}](ctx, dm, "/api/overview", false)
+	if err != nil || overview.Node == "" {
 		log.Printf("Warning: could not resolve node name from API (%v); falling back to rabbit@localhost", err)
 		return baseMnesia + "/rabbit@localhost/quorum/rabbit@localhost"
 	}
-	nodeName := nodes[0].Name
+	nodeName := overview.Node
 	path := fmt.Sprintf("%s/%s/quorum/%s", baseMnesia, nodeName, nodeName)
 	log.Printf("Resolved quorum base path: %s", path)
 	return path

@@ -19,6 +19,7 @@ import (
 const (
 	testNode1 = "rabbit@n1"
 	testNode2 = "rabbit@n2"
+	testNode3 = "rabbit@n3"
 )
 
 // ---------------------------------------------------------------------------
@@ -158,9 +159,10 @@ func TestFetchSpecificQueue_NonOKNon500ReturnsError(t *testing.T) {
 // ResolveQuorumBasePath
 // ---------------------------------------------------------------------------
 
-func TestResolveQuorumBasePath_UsesFirstNodeName(t *testing.T) {
+func TestResolveQuorumBasePath_UsesServingNodeName(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{{Name: testNode1}, {Name: testNode2}}))
+		assert.Equal(t, "/api/overview", r.URL.Path)
+		_, _ = w.Write([]byte(`{"node":"` + testNode1 + `"}`))
 	}))
 	defer server.Close()
 
@@ -180,9 +182,9 @@ func TestResolveQuorumBasePath_FallsBackOnAPIError(t *testing.T) {
 	assert.Equal(t, "/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost", got)
 }
 
-func TestResolveQuorumBasePath_FallsBackOnEmptyNodeList(t *testing.T) {
+func TestResolveQuorumBasePath_FallsBackOnEmptyNode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
@@ -297,7 +299,7 @@ func membersServer(t *testing.T, queueStatus int, members []string) *httptest.Se
 			require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{
 				{Name: testNode1, Running: true},
 				{Name: testNode2, Running: false},
-				{Name: "rabbit@n3", Running: true},
+				{Name: testNode3, Running: true},
 			}))
 			return
 		}
@@ -326,7 +328,7 @@ func TestFetchQueueMembers_FallsBackToRunningNodesOn500(t *testing.T) {
 	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{testNode1, "rabbit@n3"}, got)
+	assert.Equal(t, []string{testNode1, testNode3}, got)
 }
 
 func TestFetchQueueMembers_FallsBackToRunningNodesWhenMembersEmpty(t *testing.T) {
@@ -335,7 +337,7 @@ func TestFetchQueueMembers_FallsBackToRunningNodesWhenMembersEmpty(t *testing.T)
 	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{testNode1, "rabbit@n3"}, got)
+	assert.Equal(t, []string{testNode1, testNode3}, got)
 }
 
 func TestFetchQueueMembers_QueueLookupErrorIsReturned(t *testing.T) {

@@ -72,16 +72,15 @@ func Test_QuorumQueueRecovery(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// 4. Send the trigger to the sidecar agent's classic queue
-	triggerQueue := "test-fault-trigger"
 	err = ch.PublishWithContext(
 		ctx,
-		"",           // default exchange
-		triggerQueue, // routing key matching the agent configuration
-		false,        // mandatory
-		false,        // immediate
+		"amq.fanout", // built-in fanout exchange
+		"",
+		false, // mandatory
+		false, // immediate
 		amqp.Publishing{
 			ContentType: "text/plain",
-			Body:        []byte("TRIGGER_APPEND_CORRUPTION"),
+			Body:        []byte(quorumQueue),
 		},
 	)
 	require.NoError(t, err, "Failed to dispatch fault trigger to sidecar: %v", err)

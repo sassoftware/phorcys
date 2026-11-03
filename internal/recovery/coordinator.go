@@ -88,7 +88,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		false, // keep when the consumer detaches
 		false, // not exclusive, which would delete it with the connection
 		false,
-		amqp.Table{"x-message-ttl": int32(announcementMaxAge.Milliseconds())},
+		amqp.Table{"x-message-ttl": int32(announcementMaxAge / time.Millisecond)},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare consensus queue: %w", err)

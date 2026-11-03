@@ -6,6 +6,7 @@ package runtime
 import (
 	"log"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -76,7 +77,7 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil || d <= 0 {
-		log.Printf("WARNING: ignoring invalid %s=%q; using %v", key, v, fallback)
+		log.Printf("WARNING: ignoring invalid %s=%s; using %v", key, strconv.Quote(v), fallback)
 		return fallback
 	}
 	return d
