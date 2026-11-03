@@ -129,7 +129,12 @@ func TestNewLogMonitorWorker_SetsDefaults(t *testing.T) {
 
 func TestConsumeSystemLogs_DeclaresBindsAndConsumes(t *testing.T) {
 	ch := amqptest.NewChannel()
-	lm := &LogMonitorWorker{amqpConn: amqptest.NewConnection(ch), jobChannel: make(chan QueueJob, 1)}
+	lm := &LogMonitorWorker{
+		amqpConn:   amqptest.NewConnection(ch),
+		cfg:        runtime.Config{Hostname: "self-node"},
+		jobChannel: make(chan QueueJob, 1),
+	}
+	queueName := logScannerQueuePrefix + "self-node"
 
 	done := startResult(func() error { return lm.consumeSystemLogs(context.Background()) })
 	close(ch.Deliveries)
@@ -138,10 +143,10 @@ func TestConsumeSystemLogs_DeclaresBindsAndConsumes(t *testing.T) {
 	declared := ch.Declared()
 	require.Len(t, declared, 1)
 	assert.Equal(t, amqptest.DeclaredQueue{
-		Name:       logScannerQueueName,
-		Durable:    false,
-		AutoDelete: true,
-		Exclusive:  true,
+		Name:       queueName,
+		Durable:    true,
+		AutoDelete: false,
+		Exclusive:  false,
 		NoWait:     false,
 		Args:       amqp.Table{"x-max-length": int32(2000)},
 	}, declared[0])
@@ -149,14 +154,14 @@ func TestConsumeSystemLogs_DeclaresBindsAndConsumes(t *testing.T) {
 	bindings := ch.Bindings()
 	require.Len(t, bindings, 2)
 	for i, severity := range []string{"warning", "error"} {
-		assert.Equal(t, logScannerQueueName, bindings[i].Queue)
+		assert.Equal(t, queueName, bindings[i].Queue)
 		assert.Equal(t, severity, bindings[i].Key)
 		assert.Equal(t, logExchange, bindings[i].Exchange)
 	}
 
 	consumers := ch.Consumers()
 	require.Len(t, consumers, 1)
-	assert.Equal(t, logScannerQueueName, consumers[0].Queue)
+	assert.Equal(t, queueName, consumers[0].Queue)
 	assert.True(t, consumers[0].AutoAck)
 	assert.True(t, consumers[0].Exclusive)
 

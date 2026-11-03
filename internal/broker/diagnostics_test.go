@@ -285,3 +285,76 @@ func newTestManager(server *httptest.Server) *DiagnosticsManager {
 		Client:   server.Client(),
 	}
 }
+
+// ---------------------------------------------------------------------------
+// FetchQueueMembers
+// ---------------------------------------------------------------------------
+
+func membersServer(t *testing.T, queueStatus int, members []string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/nodes" {
+			require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{
+				{Name: testNode1, Running: true},
+				{Name: testNode2, Running: false},
+				{Name: "rabbit@n3", Running: true},
+			}))
+			return
+		}
+		if queueStatus != http.StatusOK {
+			w.WriteHeader(queueStatus)
+			return
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(RabbitQueue{Name: "q", Members: members}))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestFetchQueueMembers_ReturnsQueueMembers(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusOK, []string{testNode1, testNode2}))
+
+	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{testNode1, testNode2}, got)
+}
+
+func TestFetchQueueMembers_FallsBackToRunningNodesOn500(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusInternalServerError, nil))
+
+	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{testNode1, "rabbit@n3"}, got)
+}
+
+func TestFetchQueueMembers_FallsBackToRunningNodesWhenMembersEmpty(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusOK, nil))
+
+	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{testNode1, "rabbit@n3"}, got)
+}
+
+func TestFetchQueueMembers_QueueLookupErrorIsReturned(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusNotFound, nil))
+
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed queue members check")
+}
+
+func TestFetchQueueMembers_NodesErrorIsReturned(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	_, err := newTestManager(server).FetchQueueMembers(context.Background(), "/", "q")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed cluster node check")
+}

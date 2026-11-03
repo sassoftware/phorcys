@@ -1,20 +1,53 @@
 ---
 services:
-  rabbitmq:
+  rabbitmq1:
     build:
       dockerfile: tests/integration/Dockerfile.rabbitmq
       context: ../../
     platform: linux/amd64
     image: tests_phorcys:latest
+    container_name: rabbitmq1
+    hostname: rabbitmq1
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cluster_cookie_value
     ports:
       - "5672:5672"
-      - "5671:5671"
       - "15672:15672"
-      - "15671:15671"
     networks:
       - phorcystest
-    volumes:
-      []
-    hostname: rabbitmq
+
+  rabbitmq2:
+    build:
+      dockerfile: tests/integration/Dockerfile.rabbitmq
+      context: ../../
+    platform: linux/amd64
+    image: tests_phorcys:latest
+    container_name: rabbitmq2
+    hostname: rabbitmq2
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cluster_cookie_value
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    networks:
+      - phorcystest
+
+  rabbitmq3:
+    build:
+      dockerfile: tests/integration/Dockerfile.rabbitmq
+      context: ../../
+    platform: linux/amd64
+    image: tests_phorcys:latest
+    container_name: rabbitmq3
+    hostname: rabbitmq3
+    environment:
+      - RABBITMQ_ERLANG_COOKIE=secret_cluster_cookie_value
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    networks:
+      - phorcystest
+
 networks:
   phorcystest:
+    driver: bridge

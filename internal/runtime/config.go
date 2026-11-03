@@ -3,7 +3,11 @@
 
 package runtime
 
-import "os"
+import (
+	"log"
+	"os"
+	"time"
+)
 
 const (
 	EnvVarAMQPURL    = "PHORCYS_AMQP_URL"
@@ -12,6 +16,9 @@ const (
 	EnvVarMgmtPass   = "PHORCYS_MGMT_PASS" //nolint:gosec
 	EnvVarBackupDir  = "PHORCYS_BACKUP_DIR"
 	EnvVarQuorumPath = "PHORCYS_QUORUM_PATH"
+	// EnvVarConsensusTimeout is a Go duration (e.g. "90s") bounding how long a
+	// node waits for other replicas' announcements before choosing a recovery node.
+	EnvVarConsensusTimeout = "PHORCYS_CONSENSUS_TIMEOUT"
 
 	amqpURLDefault        = "amqp://guest:guest@localhost:5672/" // #nosec G101 betterleaks:allow -- local-development default
 	managementURLDefault  = "http://localhost:15672"
@@ -19,6 +26,8 @@ const (
 	managementPassDefault = "guest" // #nosec G101 -- local-development default
 	backupBaseDirDefault  = "/var/lib/rabbitmq/phorcys-backups"
 	workerCountDefault    = 3
+
+	consensusTimeoutDefault = 2 * time.Minute
 )
 
 // Config holds all runtime configuration for Phorcys.
@@ -36,6 +45,9 @@ type Config struct {
 	BackupBaseDir string
 	// Number of concurrent health-check workers
 	WorkerCount int
+	// Max time to wait for every replica of a queue to announce its Raft position
+	ConsensusTimeout time.Duration
+	Hostname         string
 }
 
 // LoadConfig builds a Config from environment variables, falling back to
@@ -50,7 +62,35 @@ func LoadConfig() Config {
 		BackupBaseDir:      GetEnv(EnvVarBackupDir, backupBaseDirDefault),
 		QuorumBasePath:     os.Getenv(EnvVarQuorumPath),
 		WorkerCount:        workerCountDefault,
+		Hostname:           localHostname(),
+		ConsensusTimeout:   getDuration(EnvVarConsensusTimeout, consensusTimeoutDefault),
 	}
+}
+
+// getDuration parses the environment variable named by key as a positive Go
+// duration, returning fallback if it is unset, malformed, or non-positive.
+func getDuration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		log.Printf("WARNING: ignoring invalid %s=%q; using %v", key, v, fallback)
+		return fallback
+	}
+	return d
+}
+
+// localHostname returns the name this node announces itself under, or
+// "unknown" if the lookup fails.
+func localHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Printf("WARNING: failed to determine hostname (non-fatal): %v", err)
+		return "unknown"
+	}
+	return hostname
 }
 
 // GetEnv returns the value of the environment variable named by key, or

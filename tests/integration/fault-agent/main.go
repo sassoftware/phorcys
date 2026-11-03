@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	triggerQueue      = "test-fault-trigger"
-	defaultMnesiaPath = "/var/lib/rabbitmq/mnesia"
+	triggerQueuePrefix = "test-fault-trigger."
+	defaultMnesiaPath  = "/var/lib/rabbitmq/mnesia"
 )
 
 func main() {
@@ -39,6 +39,11 @@ func run() error {
 	mnesiaPath := os.Getenv("MNESIA_PATH")
 	if mnesiaPath == "" {
 		mnesiaPath = defaultMnesiaPath
+	}
+	hostname, hErr := os.Hostname()
+	if hErr != nil {
+		log.Printf("WARNING: failed to determine hostname (non-fatal): %v", hErr)
+		hostname = "localhost"
 	}
 
 	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath) // mnesiaPath is operator-supplied container config, not attacker input
@@ -65,6 +70,7 @@ func run() error {
 	}
 	defer func() { _ = ch.Close() }()
 
+	triggerQueue := triggerQueuePrefix + hostname
 	// Declare a queue specifically for the trigger signal
 	_, err = ch.QueueDeclare(
 		triggerQueue,

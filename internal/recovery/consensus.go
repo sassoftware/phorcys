@@ -31,6 +31,29 @@ type RecoveryAnnouncement struct {
 	Index     uint64    `json:"index"`
 }
 
+// Position returns the Raft position the announcement reports.
+func (a RecoveryAnnouncement) Position() RaftPosition {
+	return RaftPosition{Idx: a.Index, Term: a.Term}
+}
+
+// SelectRecoveryNode applies the consensus algorithm to the announcements
+// collected for one queue and returns the hostname of the node that should
+// run Execute: highest term wins, then highest index, and a full tie goes to
+// the alphabetically first hostname so every node picks the same winner.
+// ok is false when anns is empty.
+func SelectRecoveryNode(anns []RecoveryAnnouncement) (hostname string, ok bool) {
+	var best RecoveryAnnouncement
+	for i, a := range anns {
+		switch {
+		case i == 0,
+			a.Position().After(best.Position()),
+			a.Position() == best.Position() && a.Hostname < best.Hostname:
+			best = a
+		}
+	}
+	return best.Hostname, len(anns) > 0
+}
+
 // PublishRecoveryAnnouncement declares ConsensusExchange and publishes ann to
 // it as JSON.
 func PublishRecoveryAnnouncement(ctx context.Context, amqpURL string, ann RecoveryAnnouncement) error {
@@ -64,9 +87,10 @@ func PublishRecoveryAnnouncement(ctx context.Context, amqpURL string, ann Recove
 		false,
 		false,
 		amqp.Publishing{
-			ContentType: "application/json",
-			Timestamp:   ann.Timestamp,
-			Body:        body,
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Timestamp:    ann.Timestamp,
+			Body:         body,
 		},
 	)
 	if err != nil {

@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -67,4 +68,17 @@ func TestLoadConfig_QuorumPathEmptyWhenUnset(t *testing.T) {
 
 	assert.Empty(t, cfg.QuorumBasePath)
 	assert.Equal(t, managementURLDefault, cfg.ManagementURL)
+}
+
+func TestLoadConfig_ConsensusTimeout(t *testing.T) {
+	t.Setenv(EnvVarConsensusTimeout, "")
+	assert.Equal(t, consensusTimeoutDefault, LoadConfig().ConsensusTimeout)
+
+	t.Setenv(EnvVarConsensusTimeout, "90s")
+	assert.Equal(t, 90*time.Second, LoadConfig().ConsensusTimeout)
+
+	for _, bad := range []string{"soon", "-5s", "0"} {
+		t.Setenv(EnvVarConsensusTimeout, bad)
+		assert.Equal(t, consensusTimeoutDefault, LoadConfig().ConsensusTimeout, bad)
+	}
 }

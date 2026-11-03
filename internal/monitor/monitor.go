@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	logScannerQueueName = "phorcys.logs.health.scanner"
-	logExchange         = "amq.rabbitmq.log"
+	// logScannerQueuePrefix + hostname names this instance's log queue.
+	logScannerQueuePrefix = "phorcys.logs.health.scanner."
+	logExchange           = "amq.rabbitmq.log"
 
 	defaultInventoryInterval = 10 * time.Minute
 	// defaultCoalesceDelay lets the broker finish printing consecutive stack traces before we query it.
@@ -71,6 +72,14 @@ func NewLogMonitorWorker(conn amqpx.Connection, dm *broker.DiagnosticsManager, c
 		inventoryInterval: defaultInventoryInterval,
 		coalesceDelay:     defaultCoalesceDelay,
 		runRecovery:       recovery.Run,
+	}
+}
+
+// UseCoordinator routes recovery through c, so that on a multi-node cluster
+// only the node holding the most recent queue data runs the destructive phase.
+func (lm *LogMonitorWorker) UseCoordinator(c *recovery.Coordinator) {
+	lm.runRecovery = func(ctx context.Context, _ runtime.Config, _ *broker.DiagnosticsManager, vhost, queueName string) error {
+		return c.Recover(ctx, vhost, queueName)
 	}
 }
 
@@ -132,7 +141,7 @@ func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
 	return nil
 }
 
-// consumeSystemLogs creates a transient queue bound to amq.rabbitmq.log and reads all messages.
+// consumeSystemLogs creates this instance's queue bound to amq.rabbitmq.log and reads all messages.
 func (lm *LogMonitorWorker) consumeSystemLogs(ctx context.Context) error {
 	ch, err := lm.amqpConn.Channel()
 	if err != nil {
@@ -140,12 +149,14 @@ func (lm *LogMonitorWorker) consumeSystemLogs(ctx context.Context) error {
 	}
 	defer func() { _ = ch.Close() }()
 
-	// Transient, auto-expiring monitoring sink with a bounded length to cap memory usage.
+	// A classic queue per instance, hosted on its local node. A quorum queue would lose
+	// quorum in exactly the failures this watches for, and a shared name would be hosted
+	// on one node. Durable so log lines survive a broker restart; length is bounded.
 	q, err := ch.QueueDeclare(
-		logScannerQueueName,
-		false, // non-durable
-		true,  // auto-delete when last consumer detaches
-		true,  // exclusive to this connection
+		logScannerQueuePrefix+lm.cfg.Hostname,
+		true,  // durable
+		false, // keep when the consumer detaches
+		false, // not exclusive, which would delete it with the connection
 		false,
 		amqp.Table{"x-max-length": int32(2000)},
 	)

@@ -16,6 +16,7 @@ import (
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/cmd/recover"
 	"github.com/sassoftware/phorcys/internal/monitor"
+	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
@@ -44,9 +45,17 @@ func main() {
 
 	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
 	m := monitor.NewLogMonitorWorker(conn, dm, cfg, cfg.WorkerCount)
+	coordinator := recovery.NewCoordinator(conn, dm, cfg)
+	m.UseCoordinator(coordinator)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	go func() {
+		if err := coordinator.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("ERROR: Consensus consumer exited: %v", err)
+		}
+	}()
 
 	log.Println("Phorcys started — monitoring RabbitMQ log exchange for errors...")
 	if err := m.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
