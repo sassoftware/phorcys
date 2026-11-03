@@ -57,6 +57,20 @@ func main() {
 		}
 	}()
 
+	// Search for existing backup files and publish any recoverable messages to a new queue before starting the log monitor.
+	recoveries, err := recovery.ParseRecoveriesFromBackupFiles(cfg.BackupBaseDir)
+	if err != nil {
+		log.Printf("FATAL: Failed to parse recoveries: %v", err)
+		return
+	}
+	for _, r := range recoveries {
+		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", r.Queue, r.BackupDir)
+		if err := recovery.Execute(ctx, cfg, dm, r); err != nil {
+			log.Printf("FATAL: Recovery failed for queue %s: %v", r.Queue, err)
+			return
+		}
+	}
+
 	log.Println("Phorcys started — monitoring RabbitMQ log exchange for errors...")
 	if err := m.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("FATAL: Monitor exited unexpectedly: %v", err)

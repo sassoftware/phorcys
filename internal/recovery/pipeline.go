@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -142,6 +143,7 @@ func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 //  9. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
 //  10. Recreate the queue (and its bindings) from the captured definition, then
 //     republish all payloads — segments first, then WAL — to preserve ordering
+//  11. Cleanup: remove the backup directory now that recovery is complete
 //
 // Callers must only invoke Execute on the single node a consensus process has
 // determined should own recovery for this queue; running it on more than one
@@ -200,17 +202,26 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	segMessages = append(segMessages, walMessages...)
 	if len(segMessages) == 0 {
 		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", prep.Queue)
-		return nil
+	} else {
+		// Phase 10: Recreate the queue (and its bindings) from def, then republish
+		// to the default exchange; routing key = queue name.
+		if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, def, segMessages); err != nil {
+			return fmt.Errorf("republish phase: %w", err)
+		}
+		log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
+			len(segMessages), prep.Queue, segCount, len(walMessages))
 	}
 
-	// Phase 10: Recreate the queue (and its bindings) from def, then republish
-	// to the default exchange; routing key = queue name.
-	if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, def, segMessages); err != nil {
-		return fmt.Errorf("republish phase: %w", err)
+	// Phase 11: Cleanup — remove the backup directory now that recovery is complete.
+	// This also runs when there was nothing to republish, so a startup scan of
+	// the backup dir doesn't re-execute (and re-delete the queue for) this backup.
+	if err := os.RemoveAll(prep.BackupDir); err != nil {
+		log.Printf("[Recovery] WARNING: failed to remove backup directory (non-fatal): %v", err)
+	} else {
+		log.Printf("[Recovery] Backup directory %s removed", prep.BackupDir)
 	}
-	log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",
-		len(segMessages), prep.Queue, segCount, len(walMessages))
 
+	log.Printf("[Recovery] Pipeline complete for queue %s/%s", prep.VHost, prep.Queue)
 	return nil
 }
 

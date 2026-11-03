@@ -47,7 +47,7 @@ func TestFetchDefinition_ReturnsDefinitionWithBindings(t *testing.T) {
 	defer server.Close()
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 
-	def, err := FetchDefinition(context.Background(), dm, "/", "orders")
+	def, err := FetchDefinition(context.Background(), dm, "/", testQueue)
 	require.NoError(t, err)
 	require.NotNil(t, def)
 	assert.True(t, def.Durable)
@@ -79,7 +79,7 @@ func TestFetchDefinition_PropagatesHTTPError(t *testing.T) {
 	defer server.Close()
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 
-	_, err := FetchDefinition(context.Background(), dm, "/", "orders")
+	_, err := FetchDefinition(context.Background(), dm, "/", testQueue)
 	require.Error(t, err)
 }
 
@@ -121,7 +121,7 @@ func TestSaveAndLoadDefinition_RoundTripPreservesIntegerArguments(t *testing.T) 
 		AutoDelete: false,
 		Arguments:  map[string]any{queueType: "quorum", "x-max-length": json.Number("1000")},
 		Bindings: []broker.QueueBinding{
-			{Source: "orders-exchange", Destination: "orders", DestinationType: queueArg, RoutingKey: testRK},
+			{Source: "orders-exchange", Destination: testQueue, DestinationType: queueArg, RoutingKey: testRK},
 		},
 	}
 	require.NoError(t, SaveDefinition(dir, qd))

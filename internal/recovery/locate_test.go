@@ -140,7 +140,7 @@ func TestScanAllQuorumDirectories_BadConfigSkipped(t *testing.T) {
 
 func TestScanAllQuorumDirectories_PathIsCorrect(t *testing.T) {
 	base := t.TempDir()
-	writeConfigFile(t, base, "abc123", "prod", "orders")
+	writeConfigFile(t, base, "abc123", "prod", testQueue)
 
 	locs, _ := ScanAllQuorumDirectories(base)
 	require.Len(t, locs, 1, "expected 1 location")
@@ -181,4 +181,272 @@ func TestFindQueueDirectory_WrongVhost(t *testing.T) {
 func TestFindQueueDirectory_InvalidBasePath(t *testing.T) {
 	_, err := FindQueueDirectory("/no/such/path", "/", "q")
 	assert.Error(t, err, "expected error for invalid base path")
+}
+
+// ---------------------------------------------------------------------------
+// ParseRecoveriesFromBackupFiles
+// ---------------------------------------------------------------------------
+
+func recoveriesByQueue(recs []*PreparedRecovery) map[string]*PreparedRecovery {
+	m := make(map[string]*PreparedRecovery, len(recs))
+	for _, r := range recs {
+		m[r.Queue] = r
+	}
+	return m
+}
+
+func TestParseRecoveriesFromBackupFiles_MissingBaseDirReturnsEmpty(t *testing.T) {
+	recs, err := ParseRecoveriesFromBackupFiles(filepath.Join(t.TempDir(), "does-not-exist"))
+	require.NoError(t, err)
+	assert.Empty(t, recs)
+}
+
+func TestParseRecoveriesFromBackupFiles_BaseIsFileReturnsError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "notadir")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0600))
+
+	recs, err := ParseRecoveriesFromBackupFiles(filepath.Join(file, "sub"))
+	assert.Error(t, err)
+	assert.Nil(t, recs)
+}
+
+func TestParseRecoveriesFromBackupFiles_EmptyBaseDir(t *testing.T) {
+	recs, err := ParseRecoveriesFromBackupFiles(t.TempDir())
+	require.NoError(t, err)
+	assert.Empty(t, recs)
+}
+
+func TestParseRecoveriesFromBackupFiles_PopulatesFields(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "prod", testQueue)
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+
+	queueDir := filepath.Join(base, testUIDA)
+	assert.Equal(t, &PreparedRecovery{
+		Queue:         testQueue,
+		VHost:         "prod",
+		QueueUID:      testUIDA,
+		BackupDir:     queueDir,
+		WALBackupDir:  filepath.Join(queueDir, "wal"),
+		Position:      RaftPosition{},
+		PositionFound: false,
+	}, recs[0])
+}
+
+func TestParseRecoveriesFromBackupFiles_SkipsInvalidEntries(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "good", "/", "valid.q")
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "noconfig"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "badconfig"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "badconfig", "config"), []byte("#{id => x}"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "notadir"), []byte("x"), 0600))
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, "valid.q", recs[0].Queue)
+}
+
+func TestParseRecoveriesFromBackupFiles_PositionFromSegments(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "/", "q.a")
+	writeSegmentBackup(t, filepath.Join(base, testUIDA), "0000000000000001.segment", []segmentEntry{
+		{idx: 7, term: 1, data: []byte("a")},
+		{idx: 8, term: 2, data: []byte("b")},
+	})
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.True(t, recs[0].PositionFound)
+	assert.Equal(t, RaftPosition{Idx: 8, Term: 2}, recs[0].Position)
+}
+
+func TestParseRecoveriesFromBackupFiles_PositionFromWALFilteredByDirUID(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "/", "q.a")
+	walDir := filepath.Join(base, testUIDA, "wal")
+	require.NoError(t, os.MkdirAll(walDir, 0755))
+	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
+		{uid: testUIDA, idx: 4, term: 3, data: []byte("a")},
+		{uid: testUIDB, idx: 99, term: 9, data: []byte("b")}, // different queue, must be ignored
+	})
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.True(t, recs[0].PositionFound)
+	assert.Equal(t, RaftPosition{Idx: 4, Term: 3}, recs[0].Position)
+}
+
+func TestParseRecoveriesFromBackupFiles_CombinesSegmentAndWAL(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "/", "q.a")
+	queueDir := filepath.Join(base, testUIDA)
+	writeSegmentBackup(t, queueDir, "0000000000000001.segment", []segmentEntry{
+		{idx: 1000, term: 1, data: []byte("seg")},
+	})
+	walDir := filepath.Join(queueDir, "wal")
+	require.NoError(t, os.MkdirAll(walDir, 0755))
+	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
+		{uid: testUIDA, idx: 2, term: 3, data: []byte("wal")},
+	})
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.True(t, recs[0].PositionFound)
+	assert.Equal(t, RaftPosition{Idx: 2, Term: 3}, recs[0].Position)
+}
+
+func TestParseRecoveriesFromBackupFiles_PositionsIsolatedPerQueue(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "/", "q.a")
+	writeConfigFile(t, base, testUIDB, "vh2", "q.b")
+	writeSegmentBackup(t, filepath.Join(base, testUIDA), "0000000000000001.segment", []segmentEntry{
+		{idx: 10, term: 1, data: []byte("a")},
+	})
+	writeSegmentBackup(t, filepath.Join(base, testUIDB), "0000000000000001.segment", []segmentEntry{
+		{idx: 20, term: 5, data: []byte("b")},
+	})
+	// A segment at the base root belongs to no queue and must not leak into any result.
+	writeSegmentBackup(t, base, "0000000000000009.segment", []segmentEntry{
+		{idx: 999, term: 99, data: []byte("stray")},
+	})
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 2)
+
+	byQueue := recoveriesByQueue(recs)
+	require.Contains(t, byQueue, "q.a")
+	require.Contains(t, byQueue, "q.b")
+	assert.Equal(t, RaftPosition{Idx: 10, Term: 1}, byQueue["q.a"].Position)
+	assert.Equal(t, "/", byQueue["q.a"].VHost)
+	assert.Equal(t, testUIDA, byQueue["q.a"].QueueUID)
+	assert.Equal(t, RaftPosition{Idx: 20, Term: 5}, byQueue["q.b"].Position)
+	assert.Equal(t, "vh2", byQueue["q.b"].VHost)
+	assert.Equal(t, testUIDB, byQueue["q.b"].QueueUID)
+}
+
+func TestParseRecoveriesFromBackupFiles_CorruptedFilesNonFatal(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, testUIDA, "/", "q.a")
+	queueDir := filepath.Join(base, testUIDA)
+	require.NoError(t, os.WriteFile(filepath.Join(queueDir, "0000000000000001.segment"), []byte("garbage"), 0600))
+	walDir := filepath.Join(queueDir, "wal")
+	require.NoError(t, os.MkdirAll(walDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(walDir, "0000000000000001.wal"), []byte("garbage"), 0600))
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.False(t, recs[0].PositionFound)
+	assert.Equal(t, RaftPosition{}, recs[0].Position)
+}
+
+// writeBackupConfig writes a ra-style 'config' file (including uid) into dir, creating it.
+func writeBackupConfig(t *testing.T, dir, uid, vhost, queueName string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0755))
+	content := fmt.Sprintf(
+		"#{id => {'%s',rabbit@node},\n  uid => <<\"%s\">>,\n  machine => {module,rabbit_fifo, #{queue_resource => {resource,<<\"%s\">>,queue,<<\"%s\">>}}}}.",
+		uid, uid, vhost, queueName,
+	)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config"), []byte(content), 0600))
+}
+
+func TestExtractQueueUID_Found(t *testing.T) {
+	uid, ok := extractQueueUID([]byte(`#{friendly_name => "x", uid => <<"2F_TES4NVJD9D5IKL4">>, log_init_args => #{uid => <<"2F_TES4NVJD9D5IKL4">>}}`))
+	require.True(t, ok)
+	assert.Equal(t, "2F_TES4NVJD9D5IKL4", uid)
+}
+
+func TestExtractQueueUID_NotFound(t *testing.T) {
+	_, ok := extractQueueUID([]byte(`#{id => x, fluid => <<"nope">>}`))
+	assert.False(t, ok)
+}
+
+func TestParseRecoveriesFromBackupFiles_NestedLayoutUsesConfigUID(t *testing.T) {
+	base := t.TempDir()
+	backupDir := filepath.Join(base, "default", testQueue, "20261103T150405Z")
+	writeBackupConfig(t, backupDir, testUIDA, "/", testQueue)
+	writeSegmentBackup(t, backupDir, "0000000000000001.segment", []segmentEntry{
+		{idx: 3, term: 1, data: []byte("seg")},
+	})
+	walDir := filepath.Join(backupDir, "wal")
+	require.NoError(t, os.MkdirAll(walDir, 0755))
+	writeWALBackup(t, walDir, "0000000000000001.wal", []walEntry{
+		{uid: testUIDA, idx: 9, term: 2, data: []byte("a")},
+		{uid: testUIDB, idx: 99, term: 9, data: []byte("b")},
+	})
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, &PreparedRecovery{
+		Queue:         testQueue,
+		VHost:         "/",
+		QueueUID:      testUIDA,
+		BackupDir:     backupDir,
+		WALBackupDir:  walDir,
+		Position:      RaftPosition{Idx: 9, Term: 2},
+		PositionFound: true,
+	}, recs[0])
+}
+
+func TestParseRecoveriesFromBackupFiles_WALSubdirNotTreatedAsBackup(t *testing.T) {
+	base := t.TempDir()
+	backupDir := filepath.Join(base, "default", "q", "20261103T150405Z")
+	writeBackupConfig(t, backupDir, testUIDA, "/", "q")
+	// Even a stray config inside wal/ must not produce a second recovery.
+	writeBackupConfig(t, filepath.Join(backupDir, "wal"), testUIDB, "/", "other")
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, "q", recs[0].Queue)
+}
+
+func TestParseRecoveriesFromBackupFiles_MultipleBackupsOrderedOldestFirst(t *testing.T) {
+	base := t.TempDir()
+	newer := filepath.Join(base, "vh", "q", "20261103T160000Z")
+	older := filepath.Join(base, "vh", "q", "20261103T150000Z")
+	other := filepath.Join(base, "default", "p", "20261103T170000Z")
+	writeBackupConfig(t, newer, testUIDA, "vh", "q")
+	writeBackupConfig(t, older, testUIDA, "vh", "q")
+	writeBackupConfig(t, other, testUIDB, "/", "p")
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 3)
+	assert.Equal(t, other, recs[0].BackupDir)
+	assert.Equal(t, older, recs[1].BackupDir)
+	assert.Equal(t, newer, recs[2].BackupDir)
+}
+
+func TestParseRecoveriesFromBackupFiles_RoundTripWithBackupQueueData(t *testing.T) {
+	// Simulate a real quorum queue directory whose basename is the Ra UID.
+	quorumDir := filepath.Join(t.TempDir(), testUIDA)
+	writeBackupConfig(t, quorumDir, testUIDA, "/", testQueue)
+	writeSegmentBackup(t, quorumDir, "0000000000000001.segment", []segmentEntry{
+		{idx: 42, term: 4, data: []byte("m")},
+	})
+
+	base := t.TempDir()
+	backupDir, err := BackupQueueData(quorumDir, base, "/", testQueue)
+	require.NoError(t, err)
+
+	recs, err := ParseRecoveriesFromBackupFiles(base)
+	require.NoError(t, err)
+	require.Len(t, recs, 1)
+	assert.Equal(t, backupDir, recs[0].BackupDir)
+	assert.Equal(t, testUIDA, recs[0].QueueUID, "UID must come from config, not the timestamp dir name")
+	assert.Equal(t, "/", recs[0].VHost)
+	assert.Equal(t, testQueue, recs[0].Queue)
+	assert.True(t, recs[0].PositionFound)
+	assert.Equal(t, RaftPosition{Idx: 42, Term: 4}, recs[0].Position)
 }
