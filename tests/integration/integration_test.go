@@ -17,7 +17,7 @@ import (
 )
 
 func Test_QuorumQueueRecovery(t *testing.T) {
-	amqpClusterURL := "amqp://guest:guest@localhost:5672/" //nolint:gosec
+	amqpClusterURL := "amqp://guest:guest@localhost:5672/" // betterleaks:allow
 	ctx := context.Background()
 
 	conn, err := amqp.Dial(amqpClusterURL)

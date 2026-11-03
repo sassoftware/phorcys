@@ -33,7 +33,7 @@ func main() {
 func run() error {
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
-		amqpURL = "amqp://guest:guest@localhost:5672/" //nolint:gosec // local docker-compose default, not a real credential
+		amqpURL = "amqp://guest:guest@localhost:5672/" // betterleaks:allow // local docker-compose default, not a real credential
 	}
 
 	mnesiaPath := os.Getenv("MNESIA_PATH")
@@ -41,7 +41,7 @@ func run() error {
 		mnesiaPath = defaultMnesiaPath
 	}
 
-	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath) //nolint:gosec // mnesiaPath is operator-supplied container config, not attacker input
+	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath) // mnesiaPath is operator-supplied container config, not attacker input
 
 	// Retry loop to wait for RabbitMQ to fully boot inside the container
 	var conn *amqp.Connection
@@ -118,11 +118,11 @@ func run() error {
 // load the file (making the queue unrecoverable), while phorcys's raw ETF byte-scanner can still locate
 // message payloads deeper in the file body.
 func CorruptQuorumQueueData(dataDir string) error {
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) { //nolint:gosec // dataDir is operator-supplied container config, not attacker input
+	if _, err := os.Stat(dataDir); os.IsNotExist(err) { // dataDir is operator-supplied container config, not attacker input
 		return fmt.Errorf("data directory does not exist: %s", dataDir)
 	}
 
-	return filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error { //nolint:gosec // dataDir is operator-supplied container config, not attacker input
+	return filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error { // dataDir is operator-supplied container config, not attacker input
 		if err != nil {
 			return err
 		}

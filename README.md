@@ -53,7 +53,7 @@ local development.
 
 | Variable              | Default                                                             | Description                                             |
 |-----------------------|---------------------------------------------------------------------|---------------------------------------------------------|
-| `PHORCYS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/`                                | AMQP broker URL                                         |
+| `PHORCYS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/` # betterleaks:allow            | AMQP broker URL                                         |
 | `PHORCYS_MGMT_URL`    | `http://localhost:15672`                                            | Management API base URL                                 |
 | `PHORCYS_MGMT_USER`   | `guest`                                                             | Management API username                                 |
 | `PHORCYS_MGMT_PASS`   | `guest`                                                             | Management API password                                 |
@@ -76,7 +76,7 @@ log.exchange.level = warning
 ```
 
 ```bash
-export PHORCYS_AMQP_URL="amqp://admin:secret@rabbitmq:5672/"
+export PHORCYS_AMQP_URL="amqp://admin:secret@rabbitmq:5672/" # betterleaks:allow
 export PHORCYS_MGMT_URL="http://rabbitmq:15672"
 export PHORCYS_MGMT_USER="admin"
 export PHORCYS_MGMT_PASS="secret"
