@@ -21,3 +21,24 @@ type RabbitQueue struct {
 	Node    string   `json:"node"`    // Primary node hosting the process coordinator
 	Members []string `json:"members"` // Raft cluster cluster nodes for this queue
 }
+
+// QueueDefinition holds the subset of a queue's declaration fields needed to
+// recreate it, as exported by /api/definitions/{vhost}.
+type QueueDefinition struct {
+	Name       string         `json:"name"`
+	VHost      string         `json:"vhost"`
+	Durable    bool           `json:"durable"`
+	AutoDelete bool           `json:"auto_delete"`
+	Arguments  map[string]any `json:"arguments"`
+}
+
+// QueueBinding describes one binding exported by /api/definitions/{vhost} whose
+// destination is a queue.
+type QueueBinding struct {
+	Source          string         `json:"source"`
+	VHost           string         `json:"vhost"`
+	Destination     string         `json:"destination"`
+	DestinationType string         `json:"destination_type"`
+	RoutingKey      string         `json:"routing_key"`
+	Arguments       map[string]any `json:"arguments"`
+}

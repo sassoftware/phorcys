@@ -80,7 +80,7 @@ func TestFetchNodes_NonOKStatusReturnsError(t *testing.T) {
 
 func TestFetchAllQueues_Success(t *testing.T) {
 	queues := []RabbitQueue{
-		{Name: "q1", VHost: "/", Type: "quorum"},
+		{Name: "q1", VHost: "/", Type: QuorumType},
 		{Name: "q2", VHost: "/", Type: "classic"},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +113,7 @@ func TestFetchAllQueues_NonOKStatusReturnsError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFetchSpecificQueue_Success(t *testing.T) {
-	queue := RabbitQueue{Name: "target.q", VHost: "/", Type: "quorum", Status: "running", Node: testNode1}
+	queue := RabbitQueue{Name: "target.q", VHost: "/", Type: QuorumType, Status: "running", Node: testNode1}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		err := json.NewEncoder(w).Encode(queue)
 		require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestProbeQueueGet_TransportAndRequestErrorsReturnFalse(t *testing.T) {
 
 	assert.False(t, dm.probeQueueGet(context.Background(), "/", "q1"))
 
-	dm.APIURL = "http://bad host/" // invalid URL -> NewRequest error
+	dm.APIURL = badHost // invalid URL -> NewRequest error
 	assert.False(t, dm.probeQueueGet(context.Background(), "/", "q1"))
 }
 
@@ -267,7 +267,7 @@ func TestFetchers_TransportErrorReturnsError(t *testing.T) {
 }
 
 func TestFetchers_InvalidURLReturnsError(t *testing.T) {
-	dm := &DiagnosticsManager{APIURL: "http://bad host/", Client: http.DefaultClient}
+	dm := &DiagnosticsManager{APIURL: badHost, Client: http.DefaultClient}
 
 	_, err := dm.fetchNodes(context.Background())
 	require.Error(t, err)

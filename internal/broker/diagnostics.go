@@ -24,6 +24,8 @@ const (
 	HealthUnrecoverable QueueHealth = "UNRECOVERABLE"  // Isolated Raft failure; safe to run recovery
 )
 
+const QuorumType = "quorum"
+
 type DiagnosticsManager struct {
 	APIURL   string // e.g., "http://localhost:15672"
 	Username string
@@ -98,7 +100,7 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 			neighborsTotal := 0
 
 			for _, q := range allQueues {
-				if q.Node == queue.Node && q.Name != queue.Name && q.Type == "quorum" {
+				if q.Node == queue.Node && q.Name != queue.Name && q.Type == QuorumType {
 					neighborsTotal++
 					if q.Status == "down" {
 						neighborsDownCount++
@@ -189,50 +191,43 @@ func (dm *DiagnosticsManager) newRequest(ctx context.Context, method, endpoint s
 	return req, nil
 }
 
-func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, error) {
-	req, err := dm.newRequest(ctx, "GET", "/api/nodes")
+// fetchJSON issues an authenticated GET to endpoint and JSON-decodes the
+// response body into a new T. useNumber preserves the int-vs-float
+// distinction in numeric fields (e.g. x-max-length) instead of silently
+// decoding them all as float64.
+func fetchJSON[T any](ctx context.Context, dm *DiagnosticsManager, endpoint string, useNumber bool) (T, error) {
+	var out T
+	req, err := dm.newRequest(ctx, http.MethodGet, endpoint)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 
 	resp, err := dm.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return out, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return out, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var nodes []RabbitNode
-	if err := json.NewDecoder(resp.Body).Decode(&nodes); err != nil {
-		return nil, err
+	dec := json.NewDecoder(resp.Body)
+	if useNumber {
+		dec.UseNumber()
 	}
-	return nodes, nil
+	if err := dec.Decode(&out); err != nil {
+		return out, fmt.Errorf("decoding response: %w", err)
+	}
+	return out, nil
+}
+
+func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, error) {
+	return fetchJSON[[]RabbitNode](ctx, dm, "/api/nodes", false)
 }
 
 func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]RabbitQueue, error) {
-	req, err := dm.newRequest(ctx, "GET", "/api/queues")
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := dm.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var queues []RabbitQueue
-	if err := json.NewDecoder(resp.Body).Decode(&queues); err != nil {
-		return nil, err
-	}
-	return queues, nil
+	return fetchJSON[[]RabbitQueue](ctx, dm, "/api/queues", false)
 }
 
 // fetchSpecificQueue targets one precise endpoint and safely handles internal 500 crashes
