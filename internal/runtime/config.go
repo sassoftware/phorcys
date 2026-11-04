@@ -17,8 +17,6 @@ const (
 	EnvVarMgmtPass   = "PHORCYS_MGMT_PASS" //nolint:gosec
 	EnvVarBackupDir  = "PHORCYS_BACKUP_DIR"
 	EnvVarQuorumPath = "PHORCYS_QUORUM_PATH"
-	// EnvVarConsensusTimeout is a Go duration (e.g. "90s") bounding how long a
-	// node waits for other replicas' announcements before choosing a recovery node.
 	EnvVarConsensusTimeout = "PHORCYS_CONSENSUS_TIMEOUT"
 
 	amqpURLDefault        = "amqp://guest:guest@localhost:5672/" // #nosec G101 betterleaks:allow -- local-development default

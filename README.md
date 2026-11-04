@@ -51,14 +51,15 @@ amq.rabbitmq.log (warning/error)
 All settings are provided via environment variables with sensible defaults for
 local development.
 
-| Variable              | Default                                                             | Description                                             |
-|-----------------------|---------------------------------------------------------------------|---------------------------------------------------------|
-| `PHORCYS_AMQP_URL`    | `amqp://guest:guest@localhost:5672/` # betterleaks:allow            | AMQP broker URL                                         |
-| `PHORCYS_MGMT_URL`    | `http://localhost:15672`                                            | Management API base URL                                 |
-| `PHORCYS_MGMT_USER`   | `guest`                                                             | Management API username                                 |
-| `PHORCYS_MGMT_PASS`   | `guest`                                                             | Management API password                                 |
-| `PHORCYS_QUORUM_PATH` | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk      |
-| `PHORCYS_BACKUP_DIR`  | `/var/lib/rabbitmq/phorcys-backups`                                 | Directory where queue data is backed up before deletion |
+| Variable                    | Default                                                             | Description                                                                                                                 |
+|-----------------------------|---------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `PHORCYS_AMQP_URL`          | `amqp://guest:guest@localhost:5672/`                                | AMQP broker URL                                                                                                             |
+| `PHORCYS_MGMT_URL`          | `http://localhost:15672`                                            | Management API base URL                                                                                                     |
+| `PHORCYS_MGMT_USER`         | `guest`                                                             | Management API username                                                                                                     |
+| `PHORCYS_MGMT_PASS`         | `guest`                                                             | Management API password                                                                                                     |
+| `PHORCYS_QUORUM_PATH`       | `/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost` | Base path of the quorum queue Raft storage on disk                                                                          |
+| `PHORCYS_BACKUP_DIR`        | `/var/lib/rabbitmq/phorcys-backups`                                 | Directory where queue data is backed up before deletion                                                                     |
+| `PHORCYS_CONSENSUS_TIMEOUT` | `120s`                                                              | A Go duration (e.g. "90s") bounding how long a node waits for other replicas' announcements before choosing a recovery node |
 
 ## Building
 
