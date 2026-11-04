@@ -328,13 +328,30 @@ func TestCoordinator_Recover_WaitsForPeerAnnouncement(t *testing.T) {
 	assert.Len(t, cs.deleted(), 1, "self (term 2) beats the late peer announcement (term 1)")
 }
 
-func TestCoordinator_Recover_TimesOutAndDecidesWithoutMissingPeer(t *testing.T) {
-	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost}, http.StatusOK)
+func TestQuorum(t *testing.T) {
+	for n, want := range map[int]int{1: 1, 2: 2, 3: 2, 4: 3, 5: 3} {
+		assert.Equalf(t, want, quorum(n), "quorum(%d)", n)
+	}
+}
+
+func TestCoordinator_Recover_TimesOutAndDecidesWithMajority(t *testing.T) {
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost, "rabbit@silent-node"}, http.StatusOK)
 	c := recoverFixture(t, cs, 50*time.Millisecond)
+	c.record(RecoveryAnnouncement{Hostname: peerHost, VHost: "/", Queue: testQueue, Timestamp: time.Now(), Term: 1, Index: 1})
 
 	require.NoError(t, c.Recover(context.Background(), "/", testQueue))
 
 	assert.Len(t, cs.deleted(), 1)
+}
+
+func TestCoordinator_Recover_TimesOutWithoutMajorityDoesNotExecute(t *testing.T) {
+	cs := newConsensusServer(t, []string{selfNode, "rabbit@" + peerHost, "rabbit@silent-node"}, http.StatusOK)
+	c := recoverFixture(t, cs, 50*time.Millisecond)
+
+	err := c.Recover(context.Background(), "/", testQueue)
+
+	require.ErrorIs(t, err, errNoQuorum)
+	assert.Empty(t, cs.deleted())
 }
 
 func TestCoordinator_Recover_ContextCancelledWhileWaiting(t *testing.T) {
@@ -412,12 +429,12 @@ func TestCoordinator_Respond_HealthErrorIsLoggedNotFatal(t *testing.T) {
 	assert.NotPanics(t, func() { c.respond(context.Background(), "/", testQueue) })
 }
 
-func TestCoordinator_Respond_UnrecoverableQueueJoinsRound(t *testing.T) {
-	// The queue endpoint 500s: health is unrecoverable and members fall back to /api/nodes.
+func TestCoordinator_Respond_UnrecoverableQueueWithoutMembersDoesNotExecute(t *testing.T) {
+	// The queue endpoint 500s: health is unrecoverable but members can't be determined.
 	cs := newConsensusServer(t, []string{selfNode}, http.StatusInternalServerError)
 	c := recoverFixture(t, cs, time.Minute)
 
 	c.respond(context.Background(), "/", testQueue)
 
-	assert.Len(t, cs.deleted(), 1)
+	assert.Empty(t, cs.deleted())
 }

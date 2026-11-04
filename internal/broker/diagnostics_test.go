@@ -322,22 +322,22 @@ func TestFetchQueueMembers_ReturnsQueueMembers(t *testing.T) {
 	assert.Equal(t, []string{testNode1, testNode2}, got)
 }
 
-func TestFetchQueueMembers_FallsBackToRunningNodesOn500(t *testing.T) {
+func TestFetchQueueMembers_ErrorsOn500(t *testing.T) {
 	dm := newTestManager(membersServer(t, http.StatusInternalServerError, nil))
 
-	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
 
-	require.NoError(t, err)
-	assert.Equal(t, []string{testNode1, testNode3}, got)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "returned 500")
 }
 
-func TestFetchQueueMembers_FallsBackToRunningNodesWhenMembersEmpty(t *testing.T) {
+func TestFetchQueueMembers_ErrorsWhenMembersEmpty(t *testing.T) {
 	dm := newTestManager(membersServer(t, http.StatusOK, nil))
 
-	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
 
-	require.NoError(t, err)
-	assert.Equal(t, []string{testNode1, testNode3}, got)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no members reported")
 }
 
 func TestFetchQueueMembers_QueueLookupErrorIsReturned(t *testing.T) {
@@ -347,16 +347,4 @@ func TestFetchQueueMembers_QueueLookupErrorIsReturned(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed queue members check")
-}
-
-func TestFetchQueueMembers_NodesErrorIsReturned(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-
-	_, err := newTestManager(server).FetchQueueMembers(context.Background(), "/", "q")
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed cluster node check")
 }

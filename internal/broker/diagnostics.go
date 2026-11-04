@@ -235,29 +235,20 @@ func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]RabbitQueue
 }
 
 // FetchQueueMembers returns the nodes hosting a replica of the queue, per
-// /api/queues/{vhost}/{queue}. A corrupt queue can make that endpoint return
-// 500 or omit members, in which case every running cluster node is returned
-// instead so callers over-count rather than miss a replica.
+// /api/queues/{vhost}/{queue}. It returns an error if the endpoint fails,
+// returns 500, or reports no members.
 func (dm *DiagnosticsManager) FetchQueueMembers(ctx context.Context, vhost, queueName string) ([]string, error) {
 	queue, is500, err := dm.fetchSpecificQueue(ctx, vhost, queueName)
 	if err != nil {
 		return nil, fmt.Errorf("failed queue members check: %w", err)
 	}
-	if !is500 && len(queue.Members) > 0 {
-		return queue.Members, nil
+	if is500 {
+		return nil, fmt.Errorf("failed queue members check: management API returned 500 for %s/%s", vhost, queueName)
 	}
-
-	nodes, err := dm.fetchNodes(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed cluster node check: %w", err)
+	if len(queue.Members) == 0 {
+		return nil, fmt.Errorf("failed queue members check: no members reported for %s/%s", vhost, queueName)
 	}
-	var members []string
-	for _, n := range nodes {
-		if n.Running {
-			members = append(members, n.Name)
-		}
-	}
-	return members, nil
+	return queue.Members, nil
 }
 
 // fetchSpecificQueue targets one precise endpoint and safely handles internal 500 crashes

@@ -6,6 +6,7 @@ package recovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -31,6 +32,10 @@ const (
 
 	defaultConsensusTimeout = 2 * time.Minute
 )
+
+// errNoQuorum means too few of a queue's members announced for it to be safe
+// to pick the node with the newest data.
+var errNoQuorum = errors.New("no majority of queue members announced")
 
 // Coordinator runs the node selection/consensus protocol: it consumes other
 // nodes' RecoveryAnnouncements, responds to queues it has not yet prepared,
@@ -203,9 +208,15 @@ func (c *Coordinator) Recover(ctx context.Context, vhost, queueName string) erro
 		return fmt.Errorf("consensus: determining queue members: %w", err)
 	}
 
-	anns := c.awaitMembers(ctx, key, members)
+	anns, err := c.awaitMembers(ctx, key, members)
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if errors.Is(err, errNoQuorum) {
+		return fmt.Errorf("consensus: %s: %w", key, err)
+	}
+	if err != nil {
+		log.Printf("[Consensus] WARNING: %s: %v — deciding without them", key, err)
 	}
 
 	winner, ok := SelectRecoveryNode(anns)
@@ -218,8 +229,10 @@ func (c *Coordinator) Recover(ctx context.Context, vhost, queueName string) erro
 }
 
 // awaitMembers returns the fresh announcements for key once every member has
-// announced, or whatever has arrived when the timeout or ctx expires.
-func (c *Coordinator) awaitMembers(ctx context.Context, key string, members []string) []RecoveryAnnouncement {
+// announced. If the timeout expires first it returns what has arrived and an
+// error naming the silent members, wrapping errNoQuorum if they are a majority.
+// If ctx expires it returns ctx's error.
+func (c *Coordinator) awaitMembers(ctx context.Context, key string, members []string) ([]RecoveryAnnouncement, error) {
 	timer := time.NewTimer(c.timeout)
 	defer timer.Stop()
 
@@ -231,16 +244,18 @@ func (c *Coordinator) awaitMembers(ctx context.Context, key string, members []st
 
 		missing := missingMembers(members, anns)
 		if len(missing) == 0 {
-			return anns
+			return anns, nil
 		}
 
 		select {
 		case <-changed:
 		case <-timer.C:
-			log.Printf("[Consensus] WARNING: %s: no announcement from %v within %v — deciding without them", key, missing, c.timeout)
-			return anns
+			if len(members)-len(missing) < quorum(len(members)) {
+				return anns, fmt.Errorf("%w: no announcement from %v within %v", errNoQuorum, missing, c.timeout)
+			}
+			return anns, fmt.Errorf("no announcement from %v within %v", missing, c.timeout)
 		case <-ctx.Done():
-			return anns
+			return anns, ctx.Err()
 		}
 	}
 }
@@ -305,6 +320,13 @@ func (c *Coordinator) end(key string) {
 
 func queueKey(vhost, queueName string) string {
 	return vhost + "/" + queueName
+}
+
+// quorum is the smallest majority of n members. Raft commits an entry once a
+// majority hold it, so the newest position among a majority covers every
+// confirmed message.
+func quorum(n int) int {
+	return n/2 + 1
 }
 
 // missingMembers returns the members (RabbitMQ node names such as
