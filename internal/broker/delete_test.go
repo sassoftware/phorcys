@@ -81,7 +81,7 @@ func TestDeleteQueue_SetsBasicAuth(t *testing.T) {
 	dm := &DiagnosticsManager{
 		APIURL:   server.URL,
 		Username: "myuser",
-		Password: "mypass",
+		Password: "mypass", // betterleaks:allow -- test credentials
 		Client:   server.Client(),
 	}
 	err := dm.deleteQueue(context.Background(), "/api/queues/%2F/q")

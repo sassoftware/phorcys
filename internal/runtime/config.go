@@ -13,7 +13,7 @@ const (
 	EnvVarBackupDir  = "PHORCYS_BACKUP_DIR"
 	EnvVarQuorumPath = "PHORCYS_QUORUM_PATH"
 
-	amqpURLDefault        = "amqp://guest:guest@localhost:5672/" // #nosec G101 -- local-development default
+	amqpURLDefault        = "amqp://guest:guest@localhost:5672/" // #nosec G101 betterleaks:allow -- local-development default
 	managementURLDefault  = "http://localhost:15672"
 	managementUserDefault = "guest"
 	managementPassDefault = "guest" // #nosec G101 -- local-development default
