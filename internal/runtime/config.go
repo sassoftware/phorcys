@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	EnvVarAMQPURL    = "PHORCYS_AMQP_URL"
-	EnvVarMgmtURL    = "PHORCYS_MGMT_URL"
-	EnvVarMgmtUser   = "PHORCYS_MGMT_USER"
-	EnvVarMgmtPass   = "PHORCYS_MGMT_PASS" //nolint:gosec
-	EnvVarBackupDir  = "PHORCYS_BACKUP_DIR"
-	EnvVarQuorumPath = "PHORCYS_QUORUM_PATH"
+	EnvVarAMQPURL          = "PHORCYS_AMQP_URL"
+	EnvVarMgmtURL          = "PHORCYS_MGMT_URL"
+	EnvVarMgmtUser         = "PHORCYS_MGMT_USER"
+	EnvVarMgmtPass         = "PHORCYS_MGMT_PASS" //nolint:gosec
+	EnvVarBackupDir        = "PHORCYS_BACKUP_DIR"
+	EnvVarQuorumPath       = "PHORCYS_QUORUM_PATH"
 	EnvVarConsensusTimeout = "PHORCYS_CONSENSUS_TIMEOUT"
 
 	amqpURLDefault        = "amqp://guest:guest@localhost:5672/" // #nosec G101 betterleaks:allow -- local-development default
