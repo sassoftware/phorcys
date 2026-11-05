@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -110,13 +109,8 @@ func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	// Announce this node's position so other nodes hosting the queue can run
 	// their own consensus comparison; a hostname lookup/publish failure must
 	// not block the local backup that already succeeded.
-	hostname, hErr := os.Hostname()
-	if hErr != nil {
-		log.Printf("[Recovery] WARNING: failed to determine hostname (non-fatal): %v", hErr)
-		hostname = "unknown"
-	}
 	ann := RecoveryAnnouncement{
-		Hostname:  hostname,
+		Hostname:  cfg.Hostname,
 		VHost:     vhost,
 		Queue:     queueName,
 		Timestamp: time.Now().UTC(),

@@ -19,6 +19,7 @@ import (
 const (
 	testNode1 = "rabbit@n1"
 	testNode2 = "rabbit@n2"
+	testNode3 = "rabbit@n3"
 )
 
 // ---------------------------------------------------------------------------
@@ -158,9 +159,10 @@ func TestFetchSpecificQueue_NonOKNon500ReturnsError(t *testing.T) {
 // ResolveQuorumBasePath
 // ---------------------------------------------------------------------------
 
-func TestResolveQuorumBasePath_UsesFirstNodeName(t *testing.T) {
+func TestResolveQuorumBasePath_UsesServingNodeName(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{{Name: testNode1}, {Name: testNode2}}))
+		assert.Equal(t, "/api/overview", r.URL.Path)
+		_, _ = w.Write([]byte(`{"node":"` + testNode1 + `"}`))
 	}))
 	defer server.Close()
 
@@ -180,9 +182,9 @@ func TestResolveQuorumBasePath_FallsBackOnAPIError(t *testing.T) {
 	assert.Equal(t, "/var/lib/rabbitmq/mnesia/rabbit@localhost/quorum/rabbit@localhost", got)
 }
 
-func TestResolveQuorumBasePath_FallsBackOnEmptyNodeList(t *testing.T) {
+func TestResolveQuorumBasePath_FallsBackOnEmptyNode(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer server.Close()
 
@@ -284,4 +286,65 @@ func newTestManager(server *httptest.Server) *DiagnosticsManager {
 		Password: "test",
 		Client:   server.Client(),
 	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchQueueMembers
+// ---------------------------------------------------------------------------
+
+func membersServer(t *testing.T, queueStatus int, members []string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/nodes" {
+			require.NoError(t, json.NewEncoder(w).Encode([]RabbitNode{
+				{Name: testNode1, Running: true},
+				{Name: testNode2, Running: false},
+				{Name: testNode3, Running: true},
+			}))
+			return
+		}
+		if queueStatus != http.StatusOK {
+			w.WriteHeader(queueStatus)
+			return
+		}
+		require.NoError(t, json.NewEncoder(w).Encode(RabbitQueue{Name: "q", Members: members}))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestFetchQueueMembers_ReturnsQueueMembers(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusOK, []string{testNode1, testNode2}))
+
+	got, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{testNode1, testNode2}, got)
+}
+
+func TestFetchQueueMembers_ErrorsOn500(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusInternalServerError, nil))
+
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "returned 500")
+}
+
+func TestFetchQueueMembers_ErrorsWhenMembersEmpty(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusOK, nil))
+
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no members reported")
+}
+
+func TestFetchQueueMembers_QueueLookupErrorIsReturned(t *testing.T) {
+	dm := newTestManager(membersServer(t, http.StatusNotFound, nil))
+
+	_, err := dm.FetchQueueMembers(context.Background(), "/", "q")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed queue members check")
 }

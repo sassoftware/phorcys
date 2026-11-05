@@ -135,16 +135,20 @@ func (dm *DiagnosticsManager) EvaluateQueueHealth(ctx context.Context, vhost, qu
 // HTTP API HELPER METHODS
 // ============================================================================
 
-// ResolveQuorumBasePath fetches the first node name from the management API and derives the
-// standard quorum storage path from it. Falls back to rabbit@localhost if the API is unreachable.
+// ResolveQuorumBasePath fetches the name of the node serving the management API request
+// (/api/overview "node") and derives the standard quorum storage path from it. /api/nodes is
+// not used because it lists every cluster member in arbitrary order. Falls back to
+// rabbit@localhost if the API is unreachable.
 func (dm *DiagnosticsManager) ResolveQuorumBasePath(ctx context.Context) string {
 	const baseMnesia = "/var/lib/rabbitmq/mnesia"
-	nodes, err := dm.fetchNodes(ctx)
-	if err != nil || len(nodes) == 0 {
+	overview, err := fetchJSON[struct {
+		Node string `json:"node"`
+	}](ctx, dm, "/api/overview", false)
+	if err != nil || overview.Node == "" {
 		log.Printf("Warning: could not resolve node name from API (%v); falling back to rabbit@localhost", err)
 		return baseMnesia + "/rabbit@localhost/quorum/rabbit@localhost"
 	}
-	nodeName := nodes[0].Name
+	nodeName := overview.Node
 	path := fmt.Sprintf("%s/%s/quorum/%s", baseMnesia, nodeName, nodeName)
 	log.Printf("Resolved quorum base path: %s", path)
 	return path
@@ -228,6 +232,23 @@ func (dm *DiagnosticsManager) fetchNodes(ctx context.Context) ([]RabbitNode, err
 
 func (dm *DiagnosticsManager) FetchAllQueues(ctx context.Context) ([]RabbitQueue, error) {
 	return fetchJSON[[]RabbitQueue](ctx, dm, "/api/queues", false)
+}
+
+// FetchQueueMembers returns the nodes hosting a replica of the queue, per
+// /api/queues/{vhost}/{queue}. It returns an error if the endpoint fails,
+// returns 500, or reports no members.
+func (dm *DiagnosticsManager) FetchQueueMembers(ctx context.Context, vhost, queueName string) ([]string, error) {
+	queue, is500, err := dm.fetchSpecificQueue(ctx, vhost, queueName)
+	if err != nil {
+		return nil, fmt.Errorf("failed queue members check: %w", err)
+	}
+	if is500 {
+		return nil, fmt.Errorf("failed queue members check: management API returned 500 for %s/%s", vhost, queueName)
+	}
+	if len(queue.Members) == 0 {
+		return nil, fmt.Errorf("failed queue members check: no members reported for %s/%s", vhost, queueName)
+	}
+	return queue.Members, nil
 }
 
 // fetchSpecificQueue targets one precise endpoint and safely handles internal 500 crashes
