@@ -201,7 +201,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	segCount := len(segMessages)
 	segMessages = append(segMessages, walMessages...)
 	if len(segMessages) == 0 {
-		log.Printf("[Recovery] No messages found in backup for %s — pipeline complete.", prep.Queue)
+		log.Printf("[Recovery] No messages found in backup for %s — skipping republish.", prep.Queue)
 	} else {
 		// Phase 10: Recreate the queue (and its bindings) from def, then republish
 		// to the default exchange; routing key = queue name.
