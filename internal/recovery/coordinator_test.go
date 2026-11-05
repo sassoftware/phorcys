@@ -230,7 +230,7 @@ func newConsensusServer(t *testing.T, members []string, queueStatus int) *consen
 			}
 			_ = json.NewEncoder(w).Encode(nodes)
 		case strings.HasPrefix(r.URL.Path, "/api/definitions/"):
-			_, _ = w.Write([]byte(`{"queues":[],"bindings":[]}`))
+			_, _ = w.Write([]byte(`{"queues":[{"name":"` + testQueue + `","vhost":"/","durable":true,"arguments":{"x-queue-type":"quorum"}}],"bindings":[]}`))
 		case strings.HasPrefix(r.URL.Path, "/api/queues/"):
 			if queueStatus != http.StatusOK {
 				w.WriteHeader(queueStatus)
