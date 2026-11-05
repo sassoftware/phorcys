@@ -4,6 +4,8 @@
 package runtime
 
 import (
+	"crypto/tls"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -47,12 +49,19 @@ type Config struct {
 	// Max time to wait for every replica of a queue to announce its Raft position
 	ConsensusTimeout time.Duration
 	Hostname         string
+	// Client TLS settings for amqps:// and https:// connections; nil means Go defaults.
+	TLS *tls.Config
 }
 
 // LoadConfig builds a Config from environment variables, falling back to
 // local-development defaults. QuorumBasePath is left empty when
 // PHORCYS_QUORUM_PATH is unset so callers can resolve it from the broker.
-func LoadConfig() Config {
+// It returns an error if the PHORCYS_TLS_* settings are invalid.
+func LoadConfig() (Config, error) {
+	tlsCfg, err := loadTLSConfig()
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid TLS configuration: %w", err)
+	}
 	return Config{
 		AMQPURL:            GetEnv(EnvVarAMQPURL, amqpURLDefault),
 		ManagementURL:      GetEnv(EnvVarMgmtURL, managementURLDefault),
@@ -63,7 +72,8 @@ func LoadConfig() Config {
 		WorkerCount:        workerCountDefault,
 		Hostname:           localHostname(),
 		ConsensusTimeout:   getDuration(EnvVarConsensusTimeout, consensusTimeoutDefault),
-	}
+		TLS:                tlsCfg,
+	}, nil
 }
 
 // getDuration parses the environment variable named by key as a positive Go

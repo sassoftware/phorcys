@@ -4,12 +4,20 @@
 package amqpx
 
 import (
+	"crypto/tls"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// Dial connects to a live broker and returns it as a Connection.
-func Dial(url string) (Connection, error) {
-	conn, err := amqp.Dial(url)
+// Dial connects to a live broker and returns it as a Connection. tlsCfg applies to
+// amqps:// URLs only; nil means Go defaults.
+func Dial(url string, tlsCfg *tls.Config) (Connection, error) {
+	var cfg amqp.Config
+	if tlsCfg != nil {
+		// DialConfig fills in ServerName on the config, so get a copy.
+		cfg.TLSClientConfig = tlsCfg.Clone()
+	}
+	conn, err := amqp.DialConfig(url, cfg)
 	if err != nil {
 		return nil, err
 	}

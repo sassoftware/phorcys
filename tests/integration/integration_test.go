@@ -7,8 +7,11 @@ package integration
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -16,12 +19,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// dialCluster connects to RABBITMQ_URL (default: plain AMQP on localhost). For the TLS
+// compose overlay set RABBITMQ_URL to the amqps:// URL on port 5671 and
+// RABBITMQ_TLS_CA_FILE=tests/integration/certs/ca.pem.
+func dialCluster(t *testing.T) *amqp.Connection {
+	t.Helper()
+	url := os.Getenv("RABBITMQ_URL")
+	if url == "" {
+		url = "amqp://guest:guest@localhost:5672/" // betterleaks:allow
+	}
+
+	var tlsCfg *tls.Config
+	if caFile := os.Getenv("RABBITMQ_TLS_CA_FILE"); caFile != "" {
+		pem, err := os.ReadFile(caFile)
+		require.NoError(t, err, "Failed to read RABBITMQ_TLS_CA_FILE")
+		pool := x509.NewCertPool()
+		require.True(t, pool.AppendCertsFromPEM(pem), "No certificates in %s", caFile)
+		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
+	}
+
+	conn, err := amqp.DialConfig(url, amqp.Config{TLSClientConfig: tlsCfg})
+	require.NoError(t, err, "Failed to connect to cluster: %v", err)
+	return conn
+}
+
 func Test_QuorumQueueRecovery(t *testing.T) {
-	amqpClusterURL := "amqp://guest:guest@localhost:5672/" // betterleaks:allow
 	ctx := context.Background()
 
-	conn, err := amqp.Dial(amqpClusterURL)
-	require.NoError(t, err, "Failed to connect to cluster: %v", err)
+	conn := dialCluster(t)
 	defer func() { _ = conn.Close() }()
 
 	ch, err := conn.Channel()

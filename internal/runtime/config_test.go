@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -50,8 +51,9 @@ func TestLoadConfig_ReadsEnv(t *testing.T) {
 	t.Setenv(EnvVarBackupDir, "/backup")
 	t.Setenv(EnvVarQuorumPath, "/quorum")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
 
+	require.NoError(t, err)
 	assert.Equal(t, "amqp://u:p@h:5672/", cfg.AMQPURL)
 	assert.Equal(t, "http://h:15672", cfg.ManagementURL)
 	assert.Equal(t, "u", cfg.ManagementUser)
@@ -64,21 +66,39 @@ func TestLoadConfig_ReadsEnv(t *testing.T) {
 func TestLoadConfig_QuorumPathEmptyWhenUnset(t *testing.T) {
 	t.Setenv(EnvVarQuorumPath, "")
 
-	cfg := LoadConfig()
+	cfg, err := LoadConfig()
 
+	require.NoError(t, err)
 	assert.Empty(t, cfg.QuorumBasePath)
 	assert.Equal(t, managementURLDefault, cfg.ManagementURL)
+	assert.Nil(t, cfg.TLS)
+}
+
+func TestLoadConfig_InvalidTLSReturnsError(t *testing.T) {
+	clearTLSEnv(t)
+	t.Setenv(EnvVarTLSCAFile, "/does/not/exist.pem")
+
+	_, err := LoadConfig()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), EnvVarTLSCAFile)
 }
 
 func TestLoadConfig_ConsensusTimeout(t *testing.T) {
+	cfg := func() Config {
+		c, err := LoadConfig()
+		require.NoError(t, err)
+		return c
+	}
+
 	t.Setenv(EnvVarConsensusTimeout, "")
-	assert.Equal(t, consensusTimeoutDefault, LoadConfig().ConsensusTimeout)
+	assert.Equal(t, consensusTimeoutDefault, cfg().ConsensusTimeout)
 
 	t.Setenv(EnvVarConsensusTimeout, "90s")
-	assert.Equal(t, 90*time.Second, LoadConfig().ConsensusTimeout)
+	assert.Equal(t, 90*time.Second, cfg().ConsensusTimeout)
 
 	for _, bad := range []string{"soon", "-5s", "0"} {
 		t.Setenv(EnvVarConsensusTimeout, bad)
-		assert.Equal(t, consensusTimeoutDefault, LoadConfig().ConsensusTimeout, bad)
+		assert.Equal(t, consensusTimeoutDefault, cfg().ConsensusTimeout, bad)
 	}
 }

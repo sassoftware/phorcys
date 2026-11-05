@@ -1,0 +1,36 @@
+---
+# Overlay that switches the cluster to TLS-only listeners.
+#   ./gen-certs.sh
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up --build
+x-tls-env: &tls-env
+  PHORCYS_AMQP_URL: amqps://guest:guest@localhost:5671/
+  PHORCYS_MGMT_URL: https://localhost:15671
+  PHORCYS_TLS_CA_FILE: /certs/ca.pem
+  RABBITMQ_URL: amqps://guest:guest@localhost:5671/
+  RABBITMQ_TLS_CA_FILE: /certs/ca.pem
+
+x-tls-volumes: &tls-volumes
+  - ./certs:/certs:ro
+  - ./rabbitmq-tls.conf:/etc/rabbitmq/conf.d/02-tls.conf:ro
+
+services:
+  rabbitmq1:
+    environment: *tls-env
+    volumes: *tls-volumes
+    ports:
+      - "5671:5671"
+      - "15671:15671"
+
+  rabbitmq2:
+    environment: *tls-env
+    volumes: *tls-volumes
+    ports:
+      - "5675:5671"
+      - "15675:15671"
+
+  rabbitmq3:
+    environment: *tls-env
+    volumes: *tls-volumes
+    ports:
+      - "5676:5671"
+      - "15676:15671"

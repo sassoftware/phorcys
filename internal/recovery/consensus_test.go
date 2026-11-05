@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sassoftware/phorcys/internal/amqpx/amqptest"
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 // testHostname is the broker host recorded in the consensus fixtures below.
@@ -36,10 +37,10 @@ func TestPublishRecoveryAnnouncement_PublishesJSONToFanoutExchange(t *testing.T)
 	dialedURL := useFakeBroker(t, conn, nil)
 	ann := testAnnouncement()
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", ann)
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, ann)
 
 	require.NoError(t, err)
-	assert.Equal(t, "amqp://fake/", *dialedURL)
+	assert.Equal(t, fakeConfig.AMQPURL, *dialedURL)
 
 	exchanges := ch.DeclaredExchanges()
 	require.Len(t, exchanges, 1)
@@ -73,7 +74,7 @@ func TestPublishRecoveryAnnouncement_DialError(t *testing.T) {
 	dialErr := errors.New("dial boom")
 	useFakeBroker(t, nil, dialErr)
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", testAnnouncement())
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, testAnnouncement())
 
 	require.ErrorIs(t, err, dialErr)
 	assert.Contains(t, err.Error(), "failed to connect to broker")
@@ -84,7 +85,7 @@ func TestPublishRecoveryAnnouncement_ChannelError(t *testing.T) {
 	conn := &amqptest.Connection{ChannelErr: chErr}
 	useFakeBroker(t, conn, nil)
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", testAnnouncement())
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, testAnnouncement())
 
 	require.ErrorIs(t, err, chErr)
 	assert.Contains(t, err.Error(), "failed to open channel")
@@ -96,7 +97,7 @@ func TestPublishRecoveryAnnouncement_ExchangeDeclareError(t *testing.T) {
 	ch := &amqptest.Channel{ExchangeDeclareErr: declErr}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", testAnnouncement())
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, testAnnouncement())
 
 	require.ErrorIs(t, err, declErr)
 	assert.Contains(t, err.Error(), "failed to declare consensus exchange")
@@ -110,7 +111,7 @@ func TestPublishRecoveryAnnouncement_MarshalError(t *testing.T) {
 	ann := testAnnouncement()
 	ann.Timestamp = time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC) // year outside RFC 3339 range
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", ann)
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, ann)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to marshal announcement")
@@ -122,7 +123,7 @@ func TestPublishRecoveryAnnouncement_PublishError(t *testing.T) {
 	ch := &amqptest.Channel{PublishErrAt: map[int]error{0: pubErr}}
 	useFakeBroker(t, amqptest.NewConnection(ch), nil)
 
-	err := PublishRecoveryAnnouncement(context.Background(), "amqp://fake/", testAnnouncement())
+	err := PublishRecoveryAnnouncement(context.Background(), fakeConfig, testAnnouncement())
 
 	require.ErrorIs(t, err, pubErr)
 	assert.Contains(t, err.Error(), "failed to publish announcement")
@@ -138,7 +139,7 @@ func TestPublishRecoveryAnnouncement_UnreachableBrokerReturnsError(t *testing.T)
 		Index:     2,
 	}
 
-	err := PublishRecoveryAnnouncement(context.Background(), unreachableAMQPURL, ann)
+	err := PublishRecoveryAnnouncement(context.Background(), runtime.Config{AMQPURL: unreachableAMQPURL}, ann)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to connect to broker")
 }

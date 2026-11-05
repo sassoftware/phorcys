@@ -28,22 +28,25 @@ func main() {
 		return
 	}
 
-	cfg := runtime.LoadConfig()
+	cfg, err := runtime.LoadConfig()
+	if err != nil {
+		log.Fatalf("FATAL: %v", err)
+	}
 
 	// If the quorum path is not explicitly set, derive it from the node name reported
 	// by the management API so the default works for any node name (e.g. rabbit@rabbitmq).
 	if cfg.QuorumBasePath == "" {
-		dm0 := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
+		dm0 := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword, cfg.TLS)
 		cfg.QuorumBasePath = dm0.ResolveQuorumBasePath(context.Background())
 	}
 
-	conn, err := amqpx.Dial(cfg.AMQPURL)
+	conn, err := amqpx.Dial(cfg.AMQPURL, cfg.TLS)
 	if err != nil {
 		log.Fatalf("FATAL: Cannot connect to broker: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
 
-	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
+	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword, cfg.TLS)
 	m := monitor.NewLogMonitorWorker(conn, dm, cfg, cfg.WorkerCount)
 	coordinator := recovery.NewCoordinator(conn, dm, cfg)
 	m.UseCoordinator(coordinator)

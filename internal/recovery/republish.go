@@ -13,6 +13,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/sassoftware/phorcys/internal/amqpx"
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 // dialAMQP is a variable so tests can substitute a fake broker connection.
@@ -71,8 +72,8 @@ func toAMQPValue(v any) any {
 // be recovered. A nil def means no definition could be recovered: the queue
 // is declared as quorum-only and a warning is logged, since the original
 // arguments and bindings are lost.
-func RepublishMessages(ctx context.Context, amqpURL, targetQueue string, def *QueueDefinition, messages []amqp.Publishing) error {
-	conn, err := dialAMQP(amqpURL)
+func RepublishMessages(ctx context.Context, cfg runtime.Config, targetQueue string, def *QueueDefinition, messages []amqp.Publishing) error {
+	conn, err := dialAMQP(cfg.AMQPURL, cfg.TLS)
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
 	}
