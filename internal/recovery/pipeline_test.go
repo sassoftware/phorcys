@@ -385,7 +385,7 @@ func TestRun_FullPipelineWithNoBackupDataSucceeds(t *testing.T) {
 	require.NoError(t, err)
 
 	// The backup Prepare created must be gone so a restart won't re-execute it.
-	leftover, err := ParseRecoveriesFromBackupFiles(cfg.BackupBaseDir)
+	leftover, err := ScanBackupDirectories(cfg.BackupBaseDir)
 	require.NoError(t, err)
 	assert.Empty(t, leftover)
 }
