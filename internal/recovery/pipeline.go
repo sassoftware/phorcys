@@ -133,12 +133,14 @@ func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	}, nil
 }
 
-// Execute runs the destructive half of recovery (steps 6-9) against the
-// backup a prior call to Prepare produced:
-//  6. Delete the corrupted queue from the broker
-//  7. Carve recoverable payloads from backed-up segment files
-//  8. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
-//  9. Recreate the queue (and its bindings) from the captured definition, then
+// Execute runs the second half of recovery (steps 6-10) against the backup a
+// prior call to Prepare produced:
+//  6. Resolve the queue definition (saved copy, else a fresh fetch); return
+//     without touching the broker if that fails or the queue no longer exists
+//  7. Delete the corrupted queue from the broker
+//  8. Carve recoverable payloads from backed-up segment files
+//  9. Carve recoverable payloads from backed-up WAL files (queue-UID filtered)
+//  10. Recreate the queue (and its bindings) from the captured definition, then
 //     republish all payloads — segments first, then WAL — to preserve ordering
 //
 // Callers must only invoke Execute on the single node a consensus process has
@@ -146,13 +148,37 @@ func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 // node would delete the queue out from under the others and double-publish
 // messages.
 func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, prep *PreparedRecovery) error {
-	// Phase 6: Delete the corrupted queue from the broker.
+	// Phase 6: Resolve the definition before any destructive call. Prefer the
+	// one Prepare saved to disk (so Execute works after a restart or on another
+	// node); otherwise fetch it now. Without a definition we cannot recreate the
+	// queue, so abort rather than delete it.
+	def, err := LoadDefinition(prep.BackupDir)
+	if err != nil {
+		log.Printf("[Recovery] WARNING: failed to load saved queue definition: %v", err)
+	}
+	if def == nil {
+		def, err = FetchDefinition(ctx, dm, prep.VHost, prep.Queue)
+		switch {
+		case err != nil:
+			return fmt.Errorf("definition phase: %w", err)
+		case def == nil:
+			// Not in the broker's metadata store: the queue is already gone.
+			log.Printf("[Recovery] Queue %s/%s no longer exists — nothing to recover, aborting without changes.", prep.VHost, prep.Queue)
+			return nil
+		default:
+			if err := SaveDefinition(prep.BackupDir, def); err != nil {
+				log.Printf("[Recovery] WARNING: failed to persist queue definition (non-fatal): %v", err)
+			}
+		}
+	}
+
+	// Phase 7: Delete the corrupted queue from the broker.
 	if err := dm.DeleteOrForceEvict(ctx, prep.VHost, prep.Queue); err != nil {
 		return fmt.Errorf("delete phase: %w", err)
 	}
 	log.Printf("[Recovery] Queue %s deleted from broker", prep.Queue)
 
-	// Phase 7: Carve messages from backed-up segment files.
+	// Phase 8: Carve messages from backed-up segment files.
 	// CarveMessagesFromDir already skips non-segment/wal extensions; WAL files
 	// in the main backup dir have been separated into the wal/ subdirectory so
 	// this call only processes .segment files here.
@@ -162,7 +188,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	}
 	log.Printf("[Recovery] Extracted %d message(s) from segment backup", len(segMessages))
 
-	// Phase 8: Carve messages from backed-up WAL files, filtered to this queue's UID.
+	// Phase 9: Carve messages from backed-up WAL files, filtered to this queue's UID.
 	walMessages, err := CarveWALMessages(prep.WALBackupDir, prep.QueueUID)
 	if err != nil {
 		log.Printf("[Recovery] WARNING: WAL carve failed (non-fatal): %v", err)
@@ -177,14 +203,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 		return nil
 	}
 
-	// Load the definition captured by Prepare from disk rather than
-	// prep.Definition, so Execute still works after a restart or on another node.
-	def, err := LoadDefinition(prep.BackupDir)
-	if err != nil {
-		log.Printf("[Recovery] WARNING: failed to load queue definition (non-fatal): %v", err)
-	}
-
-	// Phase 9: Recreate the queue (and its bindings) from def, then republish
+	// Phase 10: Recreate the queue (and its bindings) from def, then republish
 	// to the default exchange; routing key = queue name.
 	if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, def, segMessages); err != nil {
 		return fmt.Errorf("republish phase: %w", err)

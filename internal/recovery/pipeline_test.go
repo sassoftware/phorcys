@@ -29,13 +29,26 @@ const queueArg = "queue"
 const testExchange = "orders-exchange"
 const testRK = "orders.rk"
 
-// noContentServer returns an httptest server that answers every request with
-// 204, satisfying DeleteOrForceEvict's HTTP deletion path.
+// brokerServer returns an httptest server that serves a definitions export
+// containing queue to GET requests and answers every other request (the
+// queue delete) with deleteStatus.
+func brokerServer(t *testing.T, queue string, deleteStatus int) *httptest.Server {
+	t.Helper()
+	defs := `{"queues":[{"name":"` + queue + `","vhost":"/","durable":true,"auto_delete":false,"arguments":{"x-queue-type":"quorum"}}],"bindings":[]}`
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(defs))
+			return
+		}
+		w.WriteHeader(deleteStatus)
+	}))
+}
+
+// noContentServer returns a brokerServer for queue "q" whose delete succeeds.
 func noContentServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
+	return brokerServer(t, "q", http.StatusNoContent)
 }
 
 // emptyDefinitionsServer returns an httptest server that answers every request
@@ -170,9 +183,7 @@ func TestPrepare_CapturesAndPersistsDefinition(t *testing.T) {
 func TestExecute_DeletePhaseFailsReturnsError(t *testing.T) {
 	// Always-500 server: HTTP delete fails, and rabbitmqctl isn't installed in
 	// the test environment, so DeleteOrForceEvict is guaranteed to fail too.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
+	server := brokerServer(t, "q", http.StatusInternalServerError)
 	defer server.Close()
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 	cfg := runtime.Config{AMQPURL: unreachableAMQPURL}
@@ -181,6 +192,42 @@ func TestExecute_DeletePhaseFailsReturnsError(t *testing.T) {
 	err := Execute(context.Background(), cfg, dm, prep)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "delete phase")
+}
+
+func TestExecute_DefinitionFetchFailureAbortsBeforeDelete(t *testing.T) {
+	deleted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleted = true
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
+	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: t.TempDir(), WALBackupDir: t.TempDir()}
+
+	err := Execute(context.Background(), runtime.Config{AMQPURL: unreachableAMQPURL}, dm, prep)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "definition phase")
+	assert.False(t, deleted, "queue must not be deleted when its definition cannot be resolved")
+}
+
+func TestExecute_QueueGoneAbortsWithoutDeleteAndSucceeds(t *testing.T) {
+	deleted := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deleted = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"queues":[],"bindings":[]}`))
+	}))
+	defer server.Close()
+	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
+	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: t.TempDir(), WALBackupDir: t.TempDir()}
+
+	err := Execute(context.Background(), runtime.Config{AMQPURL: unreachableAMQPURL}, dm, prep)
+	require.NoError(t, err)
+	assert.False(t, deleted)
 }
 
 func TestExecute_SegmentCarveFailsReturnsError(t *testing.T) {
@@ -294,7 +341,7 @@ func TestRun_FullPipelineWithNoBackupDataSucceeds(t *testing.T) {
 	quorumBase := t.TempDir()
 	writeConfigFile(t, quorumBase, "queue-uid-789", "/", "orders")
 
-	server := noContentServer(t)
+	server := brokerServer(t, "orders", http.StatusNoContent)
 	defer server.Close()
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
 
