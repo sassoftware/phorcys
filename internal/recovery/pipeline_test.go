@@ -302,7 +302,7 @@ func TestExecute_SuccessfulRepublishRemovesBackupDir(t *testing.T) {
 
 	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: backupDir, WALBackupDir: walBackupDir, QueueUID: testQueueUID}
 
-	err = Execute(context.Background(), runtime.Config{AMQPURL: "amqp://fake/"}, dm, prep)
+	err = Execute(context.Background(), fakeConfig, dm, prep)
 	require.NoError(t, err)
 	require.Len(t, ch.Published(), 1)
 	assert.NoDirExists(t, backupDir, "backup dir (including wal/) must be removed after a successful recovery")
@@ -332,10 +332,9 @@ func TestExecute_DeclaresQueueAndBindingsFromSavedDefinition(t *testing.T) {
 	conn := amqptest.NewConnection(ch)
 	useFakeBroker(t, conn, nil)
 
-	cfg := runtime.Config{AMQPURL: "amqp://fake/"}
 	prep := &PreparedRecovery{Queue: "q", VHost: "/", BackupDir: backupDir, WALBackupDir: t.TempDir(), QueueUID: "456"}
 
-	err = Execute(context.Background(), cfg, dm, prep)
+	err = Execute(context.Background(), fakeConfig, dm, prep)
 	require.NoError(t, err)
 
 	declared := ch.Declared()

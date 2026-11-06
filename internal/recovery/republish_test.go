@@ -57,7 +57,7 @@ func TestRepublishMessages_PublishesAllPayloadsWithConfirms(t *testing.T) {
 	err := RepublishMessages(context.Background(), fakeConfig, testQueue, nil, messages)
 
 	require.NoError(t, err)
-	assert.Equal(t, "amqp://fake/", *dialedURL)
+	assert.Equal(t, fakeConfig.AMQPURL, *dialedURL)
 	assert.True(t, ch.ConfirmMode(), "confirm mode should be enabled")
 	assert.False(t, ch.ConfirmNoWait())
 	declared := ch.Declared()
