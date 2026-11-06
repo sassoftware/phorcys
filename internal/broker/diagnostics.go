@@ -6,6 +6,7 @@ package broker
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,14 +34,20 @@ type DiagnosticsManager struct {
 	Client   *http.Client
 }
 
-func NewDiagnosticsManager(apiURL, username, password string) *DiagnosticsManager {
+// NewDiagnosticsManager returns a client for the Management API. tlsCfg applies to
+// https:// URLs only;
+func NewDiagnosticsManager(apiURL, username, password string, tlsCfg *tls.Config) *DiagnosticsManager {
+	client := &http.Client{Timeout: 10 * time.Second}
+	if tlsCfg != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsCfg.Clone()
+		client.Transport = transport
+	}
 	return &DiagnosticsManager{
 		APIURL:   apiURL,
 		Username: username,
 		Password: password,
-		Client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+		Client:   client,
 	}
 }
 

@@ -41,7 +41,7 @@ func stub(t *testing.T, cfg runtime.Config, pipelineErr error) *[]call {
 	t.Cleanup(func() {
 		runPipeline, loadConfig, evaluateQueueHealth = origRun, origLoad, origEvaluateQueueHealth
 	})
-	loadConfig = func() runtime.Config { return cfg }
+	loadConfig = func() (runtime.Config, error) { return cfg, nil }
 	evaluateQueueHealth = func(_ context.Context, _ *broker.DiagnosticsManager, _, _ string) (broker.QueueHealth, error) {
 		return broker.HealthGreen, nil
 	}

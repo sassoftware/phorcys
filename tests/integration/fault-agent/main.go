@@ -6,6 +6,8 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io/fs"
 	"log"
@@ -30,6 +32,23 @@ func main() {
 	}
 }
 
+// tlsConfigFromEnv trusts the CA in RABBITMQ_TLS_CA_FILE when set; it is only used for amqps:// URLs.
+func tlsConfigFromEnv() (*tls.Config, error) {
+	caFile := os.Getenv("RABBITMQ_TLS_CA_FILE")
+	if caFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(caFile) //nolint:gosec // operator-supplied container config
+	if err != nil {
+		return nil, fmt.Errorf("reading RABBITMQ_TLS_CA_FILE: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("RABBITMQ_TLS_CA_FILE %s contains no valid certificates", caFile)
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}, nil
+}
+
 func run() error {
 	amqpURL := os.Getenv("RABBITMQ_URL")
 	if amqpURL == "" {
@@ -48,11 +67,15 @@ func run() error {
 
 	log.Printf("Starting fault injection agent. Target path: %s", mnesiaPath) // mnesiaPath is operator-supplied container config, not attacker input
 
+	tlsCfg, err := tlsConfigFromEnv()
+	if err != nil {
+		return err
+	}
+
 	// Retry loop to wait for RabbitMQ to fully boot inside the container
 	var conn *amqp.Connection
-	var err error
 	for i := 0; i < 10; i++ {
-		conn, err = amqp.Dial(amqpURL)
+		conn, err = amqp.DialConfig(amqpURL, amqp.Config{TLSClientConfig: tlsCfg})
 		if err == nil {
 			break
 		}

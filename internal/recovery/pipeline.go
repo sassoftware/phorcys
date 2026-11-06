@@ -118,7 +118,7 @@ func Prepare(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 		Term:      pos.Term,
 		Index:     pos.Idx,
 	}
-	if err := PublishRecoveryAnnouncement(ctx, cfg.AMQPURL, ann); err != nil {
+	if err := PublishRecoveryAnnouncement(ctx, cfg, ann); err != nil {
 		log.Printf("[Recovery] WARNING: failed to publish recovery announcement (non-fatal): %v", err)
 	}
 
@@ -205,7 +205,7 @@ func Execute(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsMana
 	} else {
 		// Phase 10: Recreate the queue (and its bindings) from def, then republish
 		// to the default exchange; routing key = queue name.
-		if err := RepublishMessages(ctx, cfg.AMQPURL, prep.Queue, def, segMessages); err != nil {
+		if err := RepublishMessages(ctx, cfg, prep.Queue, def, segMessages); err != nil {
 			return fmt.Errorf("republish phase: %w", err)
 		}
 		log.Printf("[Recovery] Successfully republished %d message(s) to queue %s (%d from segments, %d from WAL)",

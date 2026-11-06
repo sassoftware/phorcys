@@ -27,7 +27,7 @@ const (
 // ---------------------------------------------------------------------------
 
 func TestNewDiagnosticsManager_SetsFields(t *testing.T) {
-	dm := NewDiagnosticsManager("http://host:15672", "admin", "secret")
+	dm := NewDiagnosticsManager("http://host:15672", "admin", "secret", nil)
 	if dm.APIURL != "http://host:15672" {
 		assert.Equal(t, "http://host:15672", dm.APIURL, "APIURL = %q", dm.APIURL)
 	}

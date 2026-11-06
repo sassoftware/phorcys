@@ -11,6 +11,8 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/sassoftware/phorcys/internal/runtime"
 )
 
 // ConsensusExchange is the fanout exchange every Phorcys instance publishes
@@ -56,8 +58,8 @@ func SelectRecoveryNode(anns []RecoveryAnnouncement) (hostname string, ok bool) 
 
 // PublishRecoveryAnnouncement declares ConsensusExchange and publishes ann to
 // it as JSON.
-func PublishRecoveryAnnouncement(ctx context.Context, amqpURL string, ann RecoveryAnnouncement) error {
-	conn, err := dialAMQP(amqpURL)
+func PublishRecoveryAnnouncement(ctx context.Context, cfg runtime.Config, ann RecoveryAnnouncement) error {
+	conn, err := dialAMQP(cfg.AMQPURL, cfg.TLS)
 	if err != nil {
 		return fmt.Errorf("failed to connect to broker: %w", err)
 	}

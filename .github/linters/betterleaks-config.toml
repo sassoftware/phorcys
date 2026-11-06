@@ -3,6 +3,13 @@ title = "betterleaks config extensions"
 [extend]
 useDefault = true
 
+[[allowlists]]
+description = "TLS integration test overlay and its generated throwaway certificates"
+paths = [
+    '''tests/integration/docker-compose\.tls\.yml''',
+    '''tests/integration/certs/''',
+]
+
 [[rules]]
 id = "generic-api-key"
 

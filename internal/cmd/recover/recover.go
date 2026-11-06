@@ -71,8 +71,11 @@ func RunCommand(ctx context.Context, args []string, in io.Reader, out io.Writer)
 	}
 
 	// Load configuration and initialize diagnostics manager.
-	cfg := loadConfig()
-	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword)
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword, cfg.TLS)
 	if cfg.QuorumBasePath == "" {
 		cfg.QuorumBasePath = dm.ResolveQuorumBasePath(ctx)
 	}

@@ -61,6 +61,23 @@ local development.
 | `PHORCYS_BACKUP_DIR`        | `/var/lib/rabbitmq/phorcys-backups`                                 | Directory where queue data is backed up before deletion                                                                     |
 | `PHORCYS_CONSENSUS_TIMEOUT` | `120s`                                                              | A Go duration (e.g. "90s") bounding how long a node waits for other replicas' announcements before choosing a recovery node |
 
+### TLS
+
+Use `amqps://` in `PHORCYS_AMQP_URL` and `https://` in `PHORCYS_MGMT_URL` for
+a TLS-enabled broker.
+If the broker certificate is signed by a CA that is not in the system trust
+store, or the broker requires client certificates, set:
+
+| Variable                           | Description                                                                           |
+|------------------------------------|---------------------------------------------------------------------------------------|
+| `PHORCYS_TLS_CA_FILE`              | PEM file with the CA certificate(s) to trust, in addition to the system trust store   |
+| `PHORCYS_TLS_CERT_FILE`            | PEM client certificate for mutual TLS (requires `PHORCYS_TLS_KEY_FILE`)               |
+| `PHORCYS_TLS_KEY_FILE`             | PEM private key for the client certificate                                            |
+| `PHORCYS_TLS_SERVER_NAME`          | Hostname to verify the server certificate against, if different from the URL host     |
+| `PHORCYS_TLS_INSECURE_SKIP_VERIFY` | `true` disables certificate verification (development only)                           |
+
+The same settings apply to both the AMQP and Management API connections.
+
 ## Building
 
 ```bash
@@ -153,6 +170,26 @@ phorcys/
 │       └── testutil.go     # Shared test helpers
 └── tests/
     └── integration/        # Docker-based e2e tests
+```
+
+## Integration tests
+
+The three-node cluster in `tests/integration` runs with plain AMQP by default,
+or TLS-only listeners when the TLS overlay is added:
+
+```bash
+cd tests/integration
+
+# plain
+docker compose up --build -d
+go test -tags integration -count=1 ./...
+
+# TLS
+./gen-certs.sh
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up --build -d
+export RABBITMQ_URL=amqps://guest:guest@localhost:5671/ # betterleaks:allow
+RABBITMQ_TLS_CA_FILE=$PWD/certs/ca.pem \
+  go test -tags integration -count=1 ./...
 ```
 
 ## Limitations & caveats
