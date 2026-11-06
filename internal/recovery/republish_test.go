@@ -378,7 +378,7 @@ func TestToAMQPTable_NilArgsReturnsEmptyTable(t *testing.T) {
 }
 
 func TestToAMQPTable_PassesThroughBoolAndString(t *testing.T) {
-	out := toAMQPTable(map[string]any{"flag": true, "name": "orders"})
+	out := toAMQPTable(map[string]any{"flag": true, "name": testQueue})
 	assert.Equal(t, true, out["flag"])
-	assert.Equal(t, "orders", out["name"])
+	assert.Equal(t, testQueue, out["name"])
 }

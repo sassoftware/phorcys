@@ -85,6 +85,17 @@ func (lm *LogMonitorWorker) UseCoordinator(c *recovery.Coordinator) {
 
 // Start loads the initial queue inventory, launches background workers, and begins log consumption.
 func (lm *LogMonitorWorker) Start(ctx context.Context) error {
+	// Search for existing backup files and publish any recoverable messages to a new queue before starting the log monitor.
+	locations, err := recovery.ScanBackupDirectories(lm.cfg.BackupBaseDir)
+	if err != nil {
+		log.Printf("FATAL: Failed to parse recoveries: %v", err)
+		return err
+	}
+	for _, loc := range locations {
+		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", loc.Name, loc.Path)
+		lm.jobChannel <- QueueJob{VHost: loc.VHost, Name: loc.Name}
+	}
+
 	if err := lm.syncInventory(ctx); err != nil {
 		return err
 	}

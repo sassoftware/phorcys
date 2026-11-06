@@ -5,6 +5,7 @@ package recovery
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -140,7 +141,7 @@ func TestScanAllQuorumDirectories_BadConfigSkipped(t *testing.T) {
 
 func TestScanAllQuorumDirectories_PathIsCorrect(t *testing.T) {
 	base := t.TempDir()
-	writeConfigFile(t, base, "abc123", "prod", "orders")
+	writeConfigFile(t, base, "abc123", "prod", testQueue)
 
 	locs, _ := ScanAllQuorumDirectories(base)
 	require.Len(t, locs, 1, "expected 1 location")
@@ -181,4 +182,191 @@ func TestFindQueueDirectory_WrongVhost(t *testing.T) {
 func TestFindQueueDirectory_InvalidBasePath(t *testing.T) {
 	_, err := FindQueueDirectory("/no/such/path", "/", "q")
 	assert.Error(t, err, "expected error for invalid base path")
+}
+
+// ---------------------------------------------------------------------------
+// scanQueueDirectories
+// ---------------------------------------------------------------------------
+
+func writeRawConfig(t *testing.T, dir string, content string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config"), []byte(content), 0600))
+}
+
+func TestScanQueueDirectories_EmptyBaseDir(t *testing.T) {
+	locs, err := scanQueueDirectories(t.TempDir(), false)
+	require.NoError(t, err)
+	assert.Empty(t, locs)
+}
+
+func TestScanQueueDirectories_PopulatesAllFields(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "uid1", "prod", "orders.q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, QueueLocation{VHost: "prod", Name: "orders.q", Path: filepath.Join(base, "uid1")}, locs[0])
+}
+
+func TestScanQueueDirectories_FindsNestedQueues(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "top", "/", "top.q")
+	writeConfigFile(t, base, filepath.Join("vh", "q", "20261103T150000Z"), "vh", "deep.q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 2)
+	assert.Equal(t, filepath.Join(base, "top"), locs[0].Path)
+	assert.Equal(t, filepath.Join(base, "vh", "q", "20261103T150000Z"), locs[1].Path)
+	assert.Equal(t, "deep.q", locs[1].Name)
+}
+
+func TestScanQueueDirectories_DoesNotDescendIntoMatchedDir(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "q1", "/", "outer.q")
+	// A config under a matched queue directory (e.g. wal/) belongs to that queue.
+	writeConfigFile(t, base, filepath.Join("q1", "wal"), "/", "inner.q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, "outer.q", locs[0].Name)
+}
+
+func TestScanQueueDirectories_DescendsBelowUnmatchedConfig(t *testing.T) {
+	base := t.TempDir()
+	writeRawConfig(t, filepath.Join(base, "bad"), "#{id => something_else}")
+	writeConfigFile(t, base, filepath.Join("bad", "child"), "/", "child.q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, "child.q", locs[0].Name)
+}
+
+func TestScanQueueDirectories_SkipsInvalidEntries(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "good", "/", "valid.q")
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "noconfig"), 0755))
+	writeRawConfig(t, filepath.Join(base, "badconfig"), "#{id => x}")
+	writeRawConfig(t, filepath.Join(base, "emptyconfig"), "")
+	require.NoError(t, os.WriteFile(filepath.Join(base, "notadir"), []byte("x"), 0600))
+	// A directory named 'config' is not a config file.
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "dirconfig", "config"), 0755))
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, "valid.q", locs[0].Name)
+}
+
+func TestScanQueueDirectories_ResultsInLexicalPathOrder(t *testing.T) {
+	base := t.TempDir()
+	for _, dir := range []string{"c", "a", "b"} {
+		writeConfigFile(t, base, dir, "/", "q."+dir)
+	}
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 3)
+	for i, want := range []string{"a", "b", "c"} {
+		assert.Equal(t, filepath.Join(base, want), locs[i].Path)
+	}
+}
+
+func TestScanQueueDirectories_DuplicateQueueInMultipleDirs(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, "20261103T150000Z", "vh", "q")
+	writeConfigFile(t, base, "20261103T160000Z", "vh", "q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 2)
+	assert.Equal(t, filepath.Join(base, "20261103T150000Z"), locs[0].Path, "older backup must come first")
+	assert.Equal(t, filepath.Join(base, "20261103T160000Z"), locs[1].Path)
+}
+
+func TestScanQueueDirectories_ConfigInBaseDirMatchesBase(t *testing.T) {
+	base := t.TempDir()
+	writeConfigFile(t, base, ".", "/", "root.q")
+	writeConfigFile(t, base, "child", "/", "child.q")
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, QueueLocation{VHost: "/", Name: "root.q", Path: base}, locs[0])
+}
+
+func TestScanQueueDirectories_UnreadableSubdirSkipped(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks are bypassed when running as root")
+	}
+	base := t.TempDir()
+	writeConfigFile(t, base, "good", "/", "valid.q")
+	locked := filepath.Join(base, "locked")
+	writeConfigFile(t, locked, "inner", "/", "hidden.q")
+	require.NoError(t, os.Chmod(locked, 0000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0755) })
+
+	locs, err := scanQueueDirectories(base, false)
+	require.NoError(t, err)
+	require.Len(t, locs, 1)
+	assert.Equal(t, "valid.q", locs[0].Name)
+}
+
+func TestScanQueueDirectories_BaseIsFileReturnsEmpty(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "notadir")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0600))
+
+	locs, err := scanQueueDirectories(file, false)
+	require.NoError(t, err)
+	assert.Empty(t, locs)
+}
+
+func TestScanQueueDirectories_PathUnderFileReturnsError(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "notadir")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0600))
+
+	// ENOTDIR is not ErrNotExist, so this fails even when missingOk is set.
+	locs, err := scanQueueDirectories(filepath.Join(file, "sub"), true)
+	assert.Error(t, err)
+	assert.Nil(t, locs)
+}
+
+// ---------------------------------------------------------------------------
+// Missing base directory handling (differs between scanners)
+// ---------------------------------------------------------------------------
+
+func TestScanAllQuorumDirectories_MissingBaseDirReturnsError(t *testing.T) {
+	locs, err := ScanAllQuorumDirectories(filepath.Join(t.TempDir(), "does-not-exist"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, fs.ErrNotExist)
+	assert.Nil(t, locs)
+}
+
+func TestScanBackupDirectories_MissingBaseDirReturnsEmpty(t *testing.T) {
+	locs, err := ScanBackupDirectories(filepath.Join(t.TempDir(), "does-not-exist"))
+	require.NoError(t, err)
+	assert.Nil(t, locs)
+}
+
+func TestScanBackupDirectories_BackupQueueDataLayout(t *testing.T) {
+	base := t.TempDir()
+	older := filepath.Join("vh", "q", "20261103T150000Z")
+	newer := filepath.Join("vh", "q", "20261103T160000Z")
+	other := filepath.Join("default", "p", "20261103T170000Z")
+	writeConfigFile(t, base, newer, "vh", "q")
+	writeConfigFile(t, base, older, "vh", "q")
+	writeConfigFile(t, base, other, "/", "p")
+	// Each backup carries a wal/ subdirectory that must not be reported separately.
+	require.NoError(t, os.MkdirAll(filepath.Join(base, older, "wal"), 0755))
+
+	locs, err := ScanBackupDirectories(base)
+	require.NoError(t, err)
+	require.Len(t, locs, 3)
+	assert.Equal(t, filepath.Join(base, other), locs[0].Path)
+	assert.Equal(t, filepath.Join(base, older), locs[1].Path)
+	assert.Equal(t, filepath.Join(base, newer), locs[2].Path)
 }
