@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/sassoftware/phorcys/internal/util"
 )
 
 // BackupWALFiles scans walDir for *.wal files that contain at least one record for queueUID
@@ -48,7 +50,7 @@ func BackupWALFiles(walDir, destDir, queueUID string) (int, error) {
 		}
 
 		dst := filepath.Join(destDir, entry.Name())
-		if err := copyFile(walPath, dst); err != nil {
+		if err := util.CopyFile(walPath, dst); err != nil {
 			log.Printf("[Backup] WARNING: Failed to copy WAL %s: %v", entry.Name(), err)
 			continue
 		}
@@ -81,7 +83,7 @@ func BackupQueueData(srcDir, backupBaseDir, vhost, queueName string) (string, er
 		if entry.IsDir() {
 			continue
 		}
-		if err := copyFile(filepath.Join(srcDir, entry.Name()), filepath.Join(destDir, entry.Name())); err != nil {
+		if err := util.CopyFile(filepath.Join(srcDir, entry.Name()), filepath.Join(destDir, entry.Name())); err != nil {
 			log.Printf("[Backup] WARNING: Failed to copy %s: %v", entry.Name(), err)
 		}
 	}
