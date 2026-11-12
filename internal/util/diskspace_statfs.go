@@ -12,5 +12,5 @@ func diskAvailable(dir string) (uint64, error) {
 	if err := syscall.Statfs(dir, &st); err != nil {
 		return 0, err
 	}
-	return st.Bavail * uint64(st.Bsize), nil
+	return st.Bavail * uint64(st.Bsize), nil // #nosec G115
 }

@@ -45,8 +45,8 @@ func CopyFile(src, dst string) error {
 	return nil
 }
 
-// ensureSpace returns ErrInsufficientSpace if the filesystem holding dst cannot
-// accommodate need bytes. Space reclaimed by truncating an existing regular
+// ensureSpace returns an error if the filesystem holding dst cannot accommodate
+// the needed number of bytes. Space reclaimed by truncating an existing regular
 // file at dst is credited toward the requirement.
 func ensureSpace(dst string, need int64) error {
 	// Does dst exist and is it a regular file? If so, we can reclaim its space.
