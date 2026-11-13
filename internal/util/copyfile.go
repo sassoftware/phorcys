@@ -62,8 +62,14 @@ func ensureSpace(dst string, need int64) error {
 	if err != nil {
 		return fmt.Errorf("checking free space for %s: %w", dst, err)
 	}
+	// Require 20% headroom, rounding the buffer up to a whole byte.
+	required := uint64(need)
+	required += required / 5
+	if uint64(need)%5 != 0 {
+		required++
+	}
 	// Is there enough space to accommodate the copy?
-	if uint64(need) > avail {
+	if required > avail {
 		return fmt.Errorf("insufficient disk space: copying to %s needs %d bytes, %d available",
 			dst, need, avail)
 	}

@@ -78,13 +78,29 @@ func TestCopyFile_InsufficientSpaceReturnsError(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "dst must not be created when space is insufficient")
 }
 
+func TestEnsureSpace_RequiresTwentyPercentHeadroom(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, testDstFile)
+
+	stubAvailableSpace(t, 11)
+	require.Error(t, ensureSpace(dst, 10), "11 bytes is below the 20% headroom requirement")
+}
+
+func TestEnsureSpace_PassesWithTwentyPercentHeadroom(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, testDstFile)
+
+	stubAvailableSpace(t, 12)
+	require.NoError(t, ensureSpace(dst, 10), "12 bytes provides 20% headroom for 10 bytes")
+}
+
 func TestCopyFile_CreditsSpaceFromExistingDestination(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, testSrcFile)
 	dst := filepath.Join(dir, testDstFile)
 	require.NoError(t, os.WriteFile(src, []byte(testSrcContent), 0600))
 	require.NoError(t, os.WriteFile(dst, []byte(testDstContent), 0600))
-	stubAvailableSpace(t, 2)
+	stubAvailableSpace(t, 3)
 
 	err := CopyFile(src, dst)
 	require.NoError(t, err)
