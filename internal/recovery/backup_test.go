@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sassoftware/phorcys/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -125,7 +126,7 @@ func TestBackupWALFiles_SkipsNonWALFiles(t *testing.T) {
 func TestBackupWALFiles_CopiesWALWithMatchingUID(t *testing.T) {
 	// Use the fixture WAL which contains records for fixtureUID2.
 	walDir := t.TempDir()
-	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")), "setup")
+	require.NoError(t, util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")), "setup")
 
 	dest := t.TempDir()
 	n, err := BackupWALFiles(walDir, dest, fixtureUID2)
@@ -137,7 +138,7 @@ func TestBackupWALFiles_CopiesWALWithMatchingUID(t *testing.T) {
 
 func TestBackupWALFiles_SkipsWALWithNoMatchingUID(t *testing.T) {
 	walDir := t.TempDir()
-	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")), "setup")
+	require.NoError(t, util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walDir, "0000000000000002.wal")), "setup")
 
 	dest := t.TempDir()
 	n, err := BackupWALFiles(walDir, dest, "nonexistent-uid-xyz")

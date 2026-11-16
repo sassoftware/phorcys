@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sassoftware/phorcys/internal/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -278,7 +279,7 @@ func TestCarveWALMessages_EmptyDir_ReturnsEmpty(t *testing.T) {
 func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 	// Set up a WAL backup dir containing the fixture WAL.
 	walBackupDir := t.TempDir()
-	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
+	require.NoError(t, util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
 	messages, err := CarveWALMessages(walBackupDir, fixtureUID2)
 	require.NoError(t, err, "CarveWALMessages")
@@ -288,7 +289,7 @@ func TestCarveWALMessages_FixtureUID2_ExtractsPayloads(t *testing.T) {
 
 func TestCarveWALMessages_UnknownUID_ReturnsEmpty(t *testing.T) {
 	walBackupDir := t.TempDir()
-	require.NoError(t, copyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
+	require.NoError(t, util.CopyFile("testdata/0000000000000002.wal", filepath.Join(walBackupDir, "0000000000000002.wal")), "setup")
 
 	messages, err := CarveWALMessages(walBackupDir, "nonexistent-uid")
 	require.NoError(t, err, "CarveWALMessages")
