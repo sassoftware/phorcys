@@ -12,12 +12,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sassoftware/phorcys/internal/jobqueue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/runtime"
 	"github.com/sassoftware/phorcys/internal/testutil"
+)
+
+const (
+	testNode    = "rabbit@n1"
+	quorumType  = "quorum"
+	classicType = "classic"
+	streamType  = "stream"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,41 +35,33 @@ import (
 func TestProcessLogLine_NoRelevantKeywords_IgnoresLine(t *testing.T) {
 	lm := &LogMonitorWorker{
 		quorumList: []TrackedQueue{{VHost: "/", Name: "important.queue"}},
-		jobChannel: make(chan QueueJob, 10),
+		jobQueue:   jobqueue.New(),
 	}
 
 	lm.processLogLine("INFO: application started successfully on port 5672")
 
 	// No goroutine should have been spawned, jobChannel stays empty.
 	time.Sleep(20 * time.Millisecond)
-	select {
-	case job := <-lm.jobChannel:
-		assert.Failf(t, "did not expect a job for a line with no quorum keywords", "got %+v", job)
-	default:
-	}
+	assert.Equal(t, 0, lm.jobQueue.Size(), "did not expect a job")
 }
 
 func TestProcessLogLine_KeywordButNoMatchingQueueName(t *testing.T) {
 	lm := &LogMonitorWorker{
 		quorumList: []TrackedQueue{{VHost: "/", Name: "unrelated.queue"}},
-		jobChannel: make(chan QueueJob, 10),
+		jobQueue:   jobqueue.New(),
 	}
 
 	// Has "raft" keyword but the line does not mention the tracked queue.
 	lm.processLogLine("ERROR: raft leader election timeout on node rabbit@n1")
 
 	time.Sleep(20 * time.Millisecond)
-	select {
-	case job := <-lm.jobChannel:
-		assert.Failf(t, "did not expect a job", "got %+v", job)
-	default:
-	}
+	assert.Equal(t, 0, lm.jobQueue.Size(), "did not expect a job")
 }
 
 func TestProcessLogLine_MatchEnqueuesPendingCheck(t *testing.T) {
 	lm := &LogMonitorWorker{
 		quorumList: []TrackedQueue{{VHost: "/", Name: "events.queue"}},
-		jobChannel: make(chan QueueJob, 10),
+		jobQueue:   jobqueue.New(),
 	}
 
 	// Line contains "quorum" and the tracked queue name.
@@ -84,7 +84,7 @@ func TestProcessLogLine_StopsAtFirstMatch(t *testing.T) {
 			{VHost: "/", Name: "alpha.queue"},
 			{VHost: "/", Name: "beta.queue"},
 		},
-		jobChannel: make(chan QueueJob, 10),
+		jobQueue: jobqueue.New(),
 	}
 
 	lm.processLogLine("ERROR: quorum failure on alpha.queue and beta.queue")
@@ -107,7 +107,7 @@ func TestProcessLogLine_StopsAtFirstMatch(t *testing.T) {
 
 func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 	lm := &LogMonitorWorker{
-		jobChannel: make(chan QueueJob, 10),
+		jobQueue: jobqueue.New(),
 	}
 
 	key := "myvhost/my.queue"
@@ -126,14 +126,9 @@ func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 	case <-done:
 		// Good: returned quickly.
 	case <-time.After(500 * time.Millisecond):
-		assert.Fail(t, "coalesceLogEvent with duplicate key should return immediately, not sleep 4s")
+		assert.Fail(t, "coalesceLogEvent with duplicate key should return immediately, not sleep 500ms")
 	}
-
-	select {
-	case job := <-lm.jobChannel:
-		assert.Failf(t, "no job expected for duplicate key", "got %+v", job)
-	default:
-	}
+	assert.Equal(t, 0, lm.jobQueue.Size(), "no job should have been queued for duplicate key")
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +149,7 @@ func TestSyncInventory_OnlyQuorumQueuesCached(t *testing.T) {
 	defer server.Close()
 
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
-	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
+	lm := &LogMonitorWorker{diagnostics: dm, jobQueue: jobqueue.New()}
 
 	err := lm.syncInventory(context.Background())
 	require.NoError(t, err)
@@ -176,7 +171,7 @@ func TestSyncInventory_EmptyListOnAPIError(t *testing.T) {
 	defer server.Close()
 
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
-	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
+	lm := &LogMonitorWorker{diagnostics: dm, jobQueue: jobqueue.New()}
 
 	err := lm.syncInventory(context.Background())
 	require.Error(t, err, "expected error when management API returns non-200")
@@ -202,7 +197,7 @@ func TestSyncInventory_ReplacesExistingList(t *testing.T) {
 	defer server.Close()
 
 	dm := &broker.DiagnosticsManager{APIURL: server.URL, Client: server.Client()}
-	lm := &LogMonitorWorker{diagnostics: dm, jobChannel: make(chan QueueJob, 10)}
+	lm := &LogMonitorWorker{diagnostics: dm, jobQueue: jobqueue.New()}
 
 	err := lm.syncInventory(context.Background())
 	require.NoError(t, err)
@@ -235,13 +230,13 @@ func TestHealthCheckWorker_GreenReleasesLatch(t *testing.T) {
 	lm := &LogMonitorWorker{
 		diagnostics:   dm,
 		cfg:           runtime.Config{AMQPURL: "amqp://invalid/"},
-		jobChannel:    make(chan QueueJob, 1),
+		jobQueue:      jobqueue.New(),
 		pendingChecks: sync.Map{},
 	}
 
 	key := "//" + "ok.q"
 	lm.pendingChecks.Store(key, true)
-	lm.jobChannel <- QueueJob{VHost: "/", Name: "ok.q"}
+	lm.jobQueue.Add("/", "ok.q")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

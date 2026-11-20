@@ -15,6 +15,7 @@ import (
 	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
 	"github.com/sassoftware/phorcys/internal/cmd/recover"
+	"github.com/sassoftware/phorcys/internal/jobqueue"
 	"github.com/sassoftware/phorcys/internal/monitor"
 	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/sassoftware/phorcys/internal/runtime"
@@ -47,9 +48,7 @@ func main() {
 	defer func() { _ = conn.Close() }()
 
 	dm := broker.NewDiagnosticsManager(cfg.ManagementURL, cfg.ManagementUser, cfg.ManagementPassword, cfg.TLS)
-	m := monitor.NewLogMonitorWorker(conn, dm, cfg, cfg.WorkerCount)
 	coordinator := recovery.NewCoordinator(conn, dm, cfg)
-	m.UseCoordinator(coordinator)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -60,6 +59,23 @@ func main() {
 		}
 	}()
 
+	// Initialize the job queue for health check jobs.
+	jq := jobqueue.New()
+
+	// Search for existing backup files and publish any recoverable messages to a new queue before starting the log monitor.
+	locations, err := recovery.ScanBackupDirectories(cfg.BackupBaseDir)
+	if err != nil {
+		log.Printf("FATAL: Failed to parse recoveries: %v", err)
+		return
+	}
+	for _, loc := range locations {
+		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", loc.Name, loc.Path)
+		jq.Add(loc.VHost, loc.Name)
+	}
+
+	// Start the log monitor to watch for new errors and trigger recovery.
+	m := monitor.NewLogMonitorWorker(conn, dm, cfg, jq, cfg.WorkerCount)
+	m.UseCoordinator(coordinator)
 	log.Println("Phorcys started — monitoring RabbitMQ log exchange for errors...")
 	if err := m.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Printf("FATAL: Monitor exited unexpectedly: %v", err)
