@@ -32,19 +32,13 @@ const (
 // recoveryFunc runs the recovery pipeline for a single queue.
 type recoveryFunc func(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error
 
-// TrackedQueue is a lightweight snapshot entry used for fast log-line text matching.
-type TrackedQueue struct {
-	VHost string
-	Name  string
-}
-
 // LogMonitorWorker subscribes to the amq.rabbitmq.log exchange, detects quorum queue
 // error signatures in log lines, and triggers the recovery pipeline when warranted.
 type LogMonitorWorker struct {
 	amqpConn      amqpx.Connection
 	diagnostics   *broker.DiagnosticsManager
 	cfg           runtime.Config
-	quorumList    []TrackedQueue
+	quorumList    []jobqueue.Job
 	registryLock  sync.RWMutex
 	pendingChecks sync.Map
 	jobQueue      *jobqueue.JobQueue
@@ -120,10 +114,10 @@ func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
 		return err
 	}
 
-	var updatedList []TrackedQueue
+	var updatedList []jobqueue.Job
 	for _, q := range allQueues {
 		if q.Type == "quorum" {
-			updatedList = append(updatedList, TrackedQueue{VHost: q.VHost, Name: q.Name})
+			updatedList = append(updatedList, jobqueue.Job{VHost: q.VHost, Name: q.Name})
 		}
 	}
 
