@@ -146,7 +146,9 @@ func TestScanAllQuorumDirectories_PathIsCorrect(t *testing.T) {
 	locs, _ := ScanAllQuorumDirectories(base)
 	require.Len(t, locs, 1, "expected 1 location")
 	expected := filepath.Join(base, "abc123")
-	assert.Equal(t, expected, locs[0].Path)
+	assert.NotNil(t, locs[expected], "expected path %q to be present in results", expected)
+	assert.Equal(t, "prod", locs[expected].VHost)
+	assert.Equal(t, testQueue, locs[expected].Name)
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +209,10 @@ func TestScanQueueDirectories_PopulatesAllFields(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, QueueLocation{VHost: "prod", Name: "orders.q", Path: filepath.Join(base, "uid1")}, locs[0])
+	expected := filepath.Join(base, "uid1")
+	assert.NotNil(t, locs[expected], "expected path %q to be present in results", expected)
+	assert.Equal(t, "prod", locs[expected].VHost)
+	assert.Equal(t, "orders.q", locs[expected].Name)
 }
 
 func TestScanQueueDirectories_FindsNestedQueues(t *testing.T) {
@@ -218,9 +223,9 @@ func TestScanQueueDirectories_FindsNestedQueues(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 2)
-	assert.Equal(t, filepath.Join(base, "top"), locs[0].Path)
-	assert.Equal(t, filepath.Join(base, "vh", "q", "20261103T150000Z"), locs[1].Path)
-	assert.Equal(t, "deep.q", locs[1].Name)
+	assert.NotNil(t, locs[filepath.Join(base, "top")], "expected path %q to be present in results", filepath.Join(base, "top"))
+	assert.NotNil(t, locs[filepath.Join(base, "vh", "q", "20261103T150000Z")], "expected path %q to be present in results", filepath.Join(base, "vh", "q", "20261103T150000Z"))
+	assert.Equal(t, "deep.q", locs[filepath.Join(base, "vh", "q", "20261103T150000Z")].Name)
 }
 
 func TestScanQueueDirectories_DoesNotDescendIntoMatchedDir(t *testing.T) {
@@ -232,7 +237,7 @@ func TestScanQueueDirectories_DoesNotDescendIntoMatchedDir(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, "outer.q", locs[0].Name)
+	assert.Equal(t, "outer.q", locs[filepath.Join(base, "q1")].Name)
 }
 
 func TestScanQueueDirectories_DescendsBelowUnmatchedConfig(t *testing.T) {
@@ -243,7 +248,7 @@ func TestScanQueueDirectories_DescendsBelowUnmatchedConfig(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, "child.q", locs[0].Name)
+	assert.Equal(t, "child.q", locs[filepath.Join(base, "bad", "child")].Name)
 }
 
 func TestScanQueueDirectories_SkipsInvalidEntries(t *testing.T) {
@@ -259,7 +264,7 @@ func TestScanQueueDirectories_SkipsInvalidEntries(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, "valid.q", locs[0].Name)
+	assert.Equal(t, "valid.q", locs[filepath.Join(base, "good")].Name)
 }
 
 func TestScanQueueDirectories_ResultsInLexicalPathOrder(t *testing.T) {
@@ -271,8 +276,8 @@ func TestScanQueueDirectories_ResultsInLexicalPathOrder(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 3)
-	for i, want := range []string{"a", "b", "c"} {
-		assert.Equal(t, filepath.Join(base, want), locs[i].Path)
+	for _, want := range []string{"a", "b", "c"} {
+		assert.NotNil(t, locs[filepath.Join(base, want)], "expected path %q to be present in results", filepath.Join(base, want))
 	}
 }
 
@@ -284,8 +289,8 @@ func TestScanQueueDirectories_DuplicateQueueInMultipleDirs(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 2)
-	assert.Equal(t, filepath.Join(base, "20261103T150000Z"), locs[0].Path, "older backup must come first")
-	assert.Equal(t, filepath.Join(base, "20261103T160000Z"), locs[1].Path)
+	assert.NotNil(t, locs[filepath.Join(base, "20261103T150000Z")], "expected path %q to be present in results", filepath.Join(base, "20261103T150000Z"))
+	assert.NotNil(t, locs[filepath.Join(base, "20261103T160000Z")], "expected path %q to be present in results", filepath.Join(base, "20261103T160000Z"))
 }
 
 func TestScanQueueDirectories_ConfigInBaseDirMatchesBase(t *testing.T) {
@@ -296,7 +301,8 @@ func TestScanQueueDirectories_ConfigInBaseDirMatchesBase(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, QueueLocation{VHost: "/", Name: "root.q", Path: base}, locs[0])
+	assert.Equal(t, "/", locs[filepath.Join(base, ".")].VHost)
+	assert.Equal(t, "root.q", locs[filepath.Join(base, ".")].Name)
 }
 
 func TestScanQueueDirectories_UnreadableSubdirSkipped(t *testing.T) {
@@ -313,7 +319,7 @@ func TestScanQueueDirectories_UnreadableSubdirSkipped(t *testing.T) {
 	locs, err := scanQueueDirectories(base, false)
 	require.NoError(t, err)
 	require.Len(t, locs, 1)
-	assert.Equal(t, "valid.q", locs[0].Name)
+	assert.Equal(t, "valid.q", locs[filepath.Join(base, "good")].Name)
 }
 
 func TestScanQueueDirectories_BaseIsFileReturnsEmpty(t *testing.T) {
@@ -366,7 +372,7 @@ func TestScanBackupDirectories_BackupQueueDataLayout(t *testing.T) {
 	locs, err := ScanBackupDirectories(base)
 	require.NoError(t, err)
 	require.Len(t, locs, 3)
-	assert.Equal(t, filepath.Join(base, other), locs[0].Path)
-	assert.Equal(t, filepath.Join(base, older), locs[1].Path)
-	assert.Equal(t, filepath.Join(base, newer), locs[2].Path)
+	assert.NotNil(t, locs[filepath.Join(base, other)], "expected path %q to be present in results", filepath.Join(base, other))
+	assert.NotNil(t, locs[filepath.Join(base, older)], "expected path %q to be present in results", filepath.Join(base, older))
+	assert.NotNil(t, locs[filepath.Join(base, newer)], "expected path %q to be present in results", filepath.Join(base, newer))
 }

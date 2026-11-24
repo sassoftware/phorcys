@@ -68,9 +68,9 @@ func main() {
 		log.Printf("FATAL: Failed to parse recoveries: %v", err)
 		return
 	}
-	for _, loc := range locations {
-		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", loc.Name, loc.Path)
-		jq.Add(loc.VHost, loc.Name)
+	for path, qd := range locations {
+		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", qd.Name, path)
+		jq.Add(qd.VHost, qd.Name)
 	}
 
 	// Start the log monitor to watch for new errors and trigger recovery.
