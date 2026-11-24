@@ -12,8 +12,8 @@ import (
 
 // RaftPosition identifies a point in a Ra server's replicated log.
 type RaftPosition struct {
-	Idx  uint64
-	Term uint64
+	Idx  uint64 `json:"index"`
+	Term uint64 `json:"term"`
 }
 
 // After reports whether p is more up-to-date than other, using the same
