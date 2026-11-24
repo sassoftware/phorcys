@@ -422,20 +422,3 @@ func TestListRecoveryStates_IncludesUnreadableStateFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []common.QueueDef{{VHost: "/", Name: "q"}}, refs)
 }
-
-func TestListRecoveryStates_RemovesStaleTempFilesAndSkipsTempOnlyDirs(t *testing.T) {
-	base := t.TempDir()
-	require.NoError(t, newTestState("/", "good").Save(base))
-	goodTmp := statePathFor(t, base, "good") + ".tmp"
-	require.NoError(t, os.WriteFile(goodTmp, []byte("partial"), 0o600))
-	tmpOnly := statePathFor(t, base, "tmp-only")
-	require.NoError(t, os.MkdirAll(filepath.Dir(tmpOnly), 0o750))
-	require.NoError(t, os.WriteFile(tmpOnly+".tmp", []byte("partial"), 0o600))
-
-	refs, err := ListRecoveryStates(base)
-
-	require.NoError(t, err)
-	assert.Equal(t, []common.QueueDef{{VHost: "/", Name: "good"}}, refs)
-	assert.NoFileExists(t, goodTmp)
-	assert.NoFileExists(t, tmpOnly+".tmp")
-}

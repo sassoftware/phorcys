@@ -190,8 +190,7 @@ func ArchiveRecoveryState(baseDir, vhost, queueName string) error {
 }
 
 // ListRecoveryStates returns every queue under baseDir that has a state file.
-// It also removes stale temp files left by an interrupted Save. A
-// missing state directory yields an empty list.
+// A missing state directory yields an empty list.
 func ListRecoveryStates(baseDir string) ([]common.QueueDef, error) {
 	root := filepath.Join(baseDir, recoveryStateDirName)
 	vhostEntries, err := os.ReadDir(root)
@@ -218,7 +217,6 @@ func ListRecoveryStates(baseDir string) ([]common.QueueDef, error) {
 				continue
 			}
 			file := filepath.Join(root, ve.Name(), qe.Name(), recoveryStateFile)
-			_ = os.Remove(file + ".tmp")
 			if _, err := os.Stat(file); err != nil {
 				continue
 			}
