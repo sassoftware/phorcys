@@ -14,6 +14,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/common"
 	"github.com/sassoftware/phorcys/internal/jobqueue"
 	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/sassoftware/phorcys/internal/runtime"
@@ -38,7 +39,7 @@ type LogMonitorWorker struct {
 	amqpConn      amqpx.Connection
 	diagnostics   *broker.DiagnosticsManager
 	cfg           runtime.Config
-	quorumList    []jobqueue.Job
+	quorumList    []common.QueueDef
 	registryLock  sync.RWMutex
 	pendingChecks sync.Map
 	jobQueue      *jobqueue.JobQueue
@@ -114,10 +115,10 @@ func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
 		return err
 	}
 
-	var updatedList []jobqueue.Job
+	var updatedList []common.QueueDef
 	for _, q := range allQueues {
 		if q.Type == "quorum" {
-			updatedList = append(updatedList, jobqueue.Job{VHost: q.VHost, Name: q.Name})
+			updatedList = append(updatedList, common.QueueDef{VHost: q.VHost, Name: q.Name})
 		}
 	}
 
@@ -193,9 +194,9 @@ func (lm *LogMonitorWorker) processLogLine(logLine string) {
 	lm.registryLock.RLock()
 	defer lm.registryLock.RUnlock()
 
-	for _, tq := range lm.quorumList {
-		if strings.Contains(logLine, tq.Name) {
-			go lm.coalesceLogEvent(tq.VHost, tq.Name)
+	for _, qd := range lm.quorumList {
+		if strings.Contains(logLine, qd.Name) {
+			go lm.coalesceLogEvent(qd.VHost, qd.Name)
 			break
 		}
 	}
@@ -214,14 +215,14 @@ func (lm *LogMonitorWorker) coalesceLogEvent(vhost, name string) {
 // healthCheckWorker consumes jobs from jobChannel, evaluates queue health, and triggers recovery.
 func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 	for {
-		job, err := lm.jobQueue.GetNext(ctx)
+		qd, err := lm.jobQueue.GetNext(ctx)
 		if err != nil {
 			return
 		}
-		key := job.VHost + "/" + job.Name
+		key := qd.VHost + "/" + qd.Name
 		log.Printf("[Worker #%d] Evaluating health for: %s", id, key)
 
-		health, err := lm.diagnostics.EvaluateQueueHealth(ctx, job.VHost, job.Name)
+		health, err := lm.diagnostics.EvaluateQueueHealth(ctx, qd.VHost, qd.Name)
 		if err != nil {
 			log.Printf("[Worker #%d] Health evaluation failed for %s: %v", id, key, err)
 			lm.pendingChecks.Delete(key)
@@ -241,7 +242,7 @@ func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 				if runRecovery == nil {
 					runRecovery = recovery.Run
 				}
-				if err = runRecovery(ctx, lm.cfg, lm.diagnostics, job.VHost, job.Name); err != nil {
+				if err = runRecovery(ctx, lm.cfg, lm.diagnostics, qd.VHost, qd.Name); err != nil {
 					log.Printf("[Worker #%d] Recovery pipeline FAILED for %s: %v", id, key, err)
 				} else {
 					log.Printf("[Worker #%d] Recovery pipeline completed for %s", id, key)

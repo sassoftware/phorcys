@@ -13,6 +13,7 @@ import (
 	"regexp"
 
 	"github.com/DeedleFake/etf"
+	"github.com/sassoftware/phorcys/internal/common"
 )
 
 // resourcePattern matches the Erlang resource tuple in a ra 'config' file:
@@ -22,9 +23,8 @@ var resourcePattern = regexp.MustCompile(`\{resource,<<"([^"]*)">>,[^,]*,<<"([^"
 
 // QueueLocation describes a quorum queue found on disk.
 type QueueLocation struct {
-	VHost string
-	Name  string
-	Path  string
+	common.QueueDef
+	Path string
 }
 
 // FindQueueDirectory returns the absolute disk path for the given vhost/queue pair.

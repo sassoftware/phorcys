@@ -3,31 +3,27 @@ package jobqueue
 import (
 	"context"
 	"errors"
+
+	"github.com/sassoftware/phorcys/internal/common"
 )
 
 const jobQueueBufferSize = 1000
 
-// Job is a single health-check work item dispatched to the worker pool.
-type Job struct {
-	VHost string
-	Name  string
-}
-
 type JobQueue struct {
-	queue chan Job
+	queue chan common.QueueDef
 }
 
 func New() *JobQueue {
 	return &JobQueue{
-		queue: make(chan Job, jobQueueBufferSize),
+		queue: make(chan common.QueueDef, jobQueueBufferSize),
 	}
 }
 
 func (jq *JobQueue) Add(vhost, name string) {
-	jq.queue <- Job{VHost: vhost, Name: name}
+	jq.queue <- common.QueueDef{VHost: vhost, Name: name}
 }
 
-func (jq *JobQueue) GetNext(ctx context.Context) (*Job, error) {
+func (jq *JobQueue) GetNext(ctx context.Context) (*common.QueueDef, error) {
 	select {
 	case <-ctx.Done():
 		return nil, errors.New("context canceled while waiting for next job")
@@ -36,6 +32,6 @@ func (jq *JobQueue) GetNext(ctx context.Context) (*Job, error) {
 	}
 }
 
-func (jq *JobQueue) Size() int {
+func (jq *JobQueue) Len() int {
 	return len(jq.queue)
 }

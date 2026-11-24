@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sassoftware/phorcys/internal/common"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -34,8 +35,8 @@ func TestJobQueue_Add(t *testing.T) {
 func TestJobQueue_GetNext(t *testing.T) {
 	ctx := context.Background()
 	jq := New()
-	jq.queue <- Job{VHost: "vhost1", Name: "queue1"}
-	jq.queue <- Job{VHost: "vhost2", Name: "queue2"}
+	jq.queue <- common.QueueDef{VHost: "vhost1", Name: "queue1"}
+	jq.queue <- common.QueueDef{VHost: "vhost2", Name: "queue2"}
 
 	job, err := jq.GetNext(ctx)
 	assert.NoError(t, err)
@@ -56,19 +57,19 @@ func TestJobQueue_GetNext(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestJobQueue_Size(t *testing.T) {
+func TestJobQueue_Len(t *testing.T) {
 	jq := New()
-	assert.Equal(t, 0, jq.Size())
+	assert.Equal(t, 0, jq.Len())
 
-	jq.queue <- Job{VHost: "vhost1", Name: "queue1"}
-	assert.Equal(t, 1, jq.Size())
+	jq.queue <- common.QueueDef{VHost: "vhost1", Name: "queue1"}
+	assert.Equal(t, 1, jq.Len())
 
-	jq.queue <- Job{VHost: "vhost2", Name: "queue2"}
-	assert.Equal(t, 2, jq.Size())
-
-	<-jq.queue
-	assert.Equal(t, 1, jq.Size())
+	jq.queue <- common.QueueDef{VHost: "vhost2", Name: "queue2"}
+	assert.Equal(t, 2, jq.Len())
 
 	<-jq.queue
-	assert.Equal(t, 0, jq.Size())
+	assert.Equal(t, 1, jq.Len())
+
+	<-jq.queue
+	assert.Equal(t, 0, jq.Len())
 }

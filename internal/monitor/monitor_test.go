@@ -15,6 +15,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/sassoftware/phorcys/internal/amqpx/amqptest"
+	"github.com/sassoftware/phorcys/internal/common"
 	"github.com/sassoftware/phorcys/internal/jobqueue"
 	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/stretchr/testify/assert"
@@ -39,7 +40,7 @@ const (
 
 func TestProcessLogLine_NoRelevantKeywords_IgnoresLine(t *testing.T) {
 	lm := &LogMonitorWorker{
-		quorumList: []jobqueue.Job{{VHost: "/", Name: "important.queue"}},
+		quorumList: []common.QueueDef{{VHost: "/", Name: "important.queue"}},
 		jobQueue:   jobqueue.New(),
 	}
 
@@ -47,12 +48,12 @@ func TestProcessLogLine_NoRelevantKeywords_IgnoresLine(t *testing.T) {
 
 	// No goroutine should have been spawned, jobChannel stays empty.
 	time.Sleep(20 * time.Millisecond)
-	assert.Equal(t, 0, lm.jobQueue.Size(), "did not expect a job")
+	assert.Equal(t, 0, lm.jobQueue.Len(), "did not expect a job")
 }
 
 func TestProcessLogLine_KeywordButNoMatchingQueueName(t *testing.T) {
 	lm := &LogMonitorWorker{
-		quorumList: []jobqueue.Job{{VHost: "/", Name: "unrelated.queue"}},
+		quorumList: []common.QueueDef{{VHost: "/", Name: "unrelated.queue"}},
 		jobQueue:   jobqueue.New(),
 	}
 
@@ -60,12 +61,12 @@ func TestProcessLogLine_KeywordButNoMatchingQueueName(t *testing.T) {
 	lm.processLogLine("ERROR: raft leader election timeout on node rabbit@n1")
 
 	time.Sleep(20 * time.Millisecond)
-	assert.Equal(t, 0, lm.jobQueue.Size(), "did not expect a job")
+	assert.Equal(t, 0, lm.jobQueue.Len(), "did not expect a job")
 }
 
 func TestProcessLogLine_MatchEnqueuesPendingCheck(t *testing.T) {
 	lm := &LogMonitorWorker{
-		quorumList: []jobqueue.Job{{VHost: "/", Name: "events.queue"}},
+		quorumList: []common.QueueDef{{VHost: "/", Name: "events.queue"}},
 		jobQueue:   jobqueue.New(),
 	}
 
@@ -85,7 +86,7 @@ func TestProcessLogLine_MatchEnqueuesPendingCheck(t *testing.T) {
 func TestProcessLogLine_StopsAtFirstMatch(t *testing.T) {
 	// Two queues both mentioned in the same log line; only the first should fire.
 	lm := &LogMonitorWorker{
-		quorumList: []jobqueue.Job{
+		quorumList: []common.QueueDef{
 			{VHost: "/", Name: "alpha.queue"},
 			{VHost: "/", Name: "beta.queue"},
 		},
@@ -133,7 +134,7 @@ func TestCoalesceLogEvent_Deduplication(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		assert.Fail(t, "coalesceLogEvent with duplicate key should return immediately, not sleep 500ms")
 	}
-	assert.Equal(t, 0, lm.jobQueue.Size(), "no job should have been queued for duplicate key")
+	assert.Equal(t, 0, lm.jobQueue.Len(), "no job should have been queued for duplicate key")
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +360,7 @@ func TestProcessLogLine_SyncFailureStillMatchesCachedList(t *testing.T) {
 
 	lm := &LogMonitorWorker{
 		diagnostics: newTestManager(server),
-		quorumList:  []jobqueue.Job{{VHost: "/", Name: "cached.q"}},
+		quorumList:  []common.QueueDef{{VHost: "/", Name: "cached.q"}},
 		jobQueue:    jobqueue.New(),
 	}
 
@@ -380,7 +381,7 @@ func TestCoalesceLogEvent_AddsJobAfterDelay(t *testing.T) {
 
 	lm.coalesceLogEvent("/", "burst.q")
 
-	assert.Equal(t, 1, lm.jobQueue.Size())
+	assert.Equal(t, 1, lm.jobQueue.Len())
 	_, ok := lm.pendingChecks.Load("//burst.q")
 	assert.True(t, ok, "latch should remain held until the worker processes the job")
 }
