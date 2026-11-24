@@ -13,6 +13,7 @@ import (
 	"regexp"
 
 	"github.com/DeedleFake/etf"
+	"github.com/sassoftware/phorcys/internal/common"
 )
 
 // resourcePattern matches the Erlang resource tuple in a ra 'config' file:
@@ -20,22 +21,15 @@ import (
 //	{resource,<<"VHOST">>,queue,<<"QUEUENAME">>}
 var resourcePattern = regexp.MustCompile(`\{resource,<<"([^"]*)">>,[^,]*,<<"([^"]*)">>}`)
 
-// QueueLocation describes a quorum queue found on disk.
-type QueueLocation struct {
-	VHost string
-	Name  string
-	Path  string
-}
-
 // FindQueueDirectory returns the absolute disk path for the given vhost/queue pair.
 func FindQueueDirectory(quorumBasePath, targetVHost, targetQueue string) (string, error) {
 	locations, err := ScanAllQuorumDirectories(quorumBasePath)
 	if err != nil {
 		return "", err
 	}
-	for _, loc := range locations {
-		if loc.VHost == targetVHost && loc.Name == targetQueue {
-			return loc.Path, nil
+	for path, qd := range locations {
+		if qd.VHost == targetVHost && qd.Name == targetQueue {
+			return path, nil
 		}
 	}
 	return "", fmt.Errorf("directory not found for vhost: %s, queue: %s", targetVHost, targetQueue)
@@ -43,20 +37,20 @@ func FindQueueDirectory(quorumBasePath, targetVHost, targetQueue string) (string
 
 // ScanAllQuorumDirectories reads every subfolder in quorumBasePath and extracts queue identity
 // from the plain-text Erlang 'config' file written by the ra library inside each directory.
-func ScanAllQuorumDirectories(quorumBasePath string) ([]QueueLocation, error) {
+func ScanAllQuorumDirectories(quorumBasePath string) (map[string]*common.QueueDef, error) {
 	return scanQueueDirectories(quorumBasePath, false)
 }
 
 // ScanBackupDirectories walks backupBaseDir recursively and returns every directory
 // containing a ra 'config' file with a queue resource tuple.
-func ScanBackupDirectories(backupBaseDir string) ([]QueueLocation, error) {
+func ScanBackupDirectories(backupBaseDir string) (map[string]*common.QueueDef, error) {
 	return scanQueueDirectories(backupBaseDir, true)
 }
 
 // scanQueueDirectories walks baseDir and returns every directory containing a ra 'config'
 // file with a queue resource tuple. A matched directory is not descended into, since its
 // subdirectories (e.g. wal/) belong to that queue. Results are in lexical path order.
-func scanQueueDirectories(baseDir string, missingOk bool) ([]QueueLocation, error) {
+func scanQueueDirectories(baseDir string, missingOk bool) (map[string]*common.QueueDef, error) {
 	if _, err := os.Stat(baseDir); err != nil {
 		if missingOk && errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -64,7 +58,7 @@ func scanQueueDirectories(baseDir string, missingOk bool) ([]QueueLocation, erro
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
-	var locations []QueueLocation
+	locations := make(map[string]*common.QueueDef)
 	err := filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if path == baseDir {
@@ -87,11 +81,10 @@ func scanQueueDirectories(baseDir string, missingOk bool) ([]QueueLocation, erro
 		if !found {
 			return nil
 		}
-		locations = append(locations, QueueLocation{
+		locations[path] = &common.QueueDef{
 			VHost: vhost,
 			Name:  name,
-			Path:  path,
-		})
+		}
 		return fs.SkipDir
 	})
 	if err != nil {

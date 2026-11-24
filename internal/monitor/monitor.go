@@ -12,9 +12,10 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-
 	"github.com/sassoftware/phorcys/internal/amqpx"
 	"github.com/sassoftware/phorcys/internal/broker"
+	"github.com/sassoftware/phorcys/internal/common"
+	"github.com/sassoftware/phorcys/internal/jobqueue"
 	"github.com/sassoftware/phorcys/internal/recovery"
 	"github.com/sassoftware/phorcys/internal/runtime"
 )
@@ -32,28 +33,16 @@ const (
 // recoveryFunc runs the recovery pipeline for a single queue.
 type recoveryFunc func(ctx context.Context, cfg runtime.Config, dm *broker.DiagnosticsManager, vhost, queueName string) error
 
-// QueueJob is a single health-check work item dispatched to the worker pool.
-type QueueJob struct {
-	VHost string
-	Name  string
-}
-
-// TrackedQueue is a lightweight snapshot entry used for fast log-line text matching.
-type TrackedQueue struct {
-	VHost string
-	Name  string
-}
-
 // LogMonitorWorker subscribes to the amq.rabbitmq.log exchange, detects quorum queue
 // error signatures in log lines, and triggers the recovery pipeline when warranted.
 type LogMonitorWorker struct {
 	amqpConn      amqpx.Connection
 	diagnostics   *broker.DiagnosticsManager
 	cfg           runtime.Config
-	quorumList    []TrackedQueue
+	quorumList    []common.QueueDef
 	registryLock  sync.RWMutex
 	pendingChecks sync.Map
-	jobChannel    chan QueueJob
+	jobQueue      *jobqueue.JobQueue
 	workerCount   int
 
 	inventoryInterval time.Duration
@@ -62,12 +51,12 @@ type LogMonitorWorker struct {
 }
 
 // NewLogMonitorWorker constructs a LogMonitorWorker wired to the provided connection and config.
-func NewLogMonitorWorker(conn amqpx.Connection, dm *broker.DiagnosticsManager, cfg runtime.Config, concurrentWorkers int) *LogMonitorWorker {
+func NewLogMonitorWorker(conn amqpx.Connection, dm *broker.DiagnosticsManager, cfg runtime.Config, jq *jobqueue.JobQueue, concurrentWorkers int) *LogMonitorWorker {
 	return &LogMonitorWorker{
 		amqpConn:          conn,
 		diagnostics:       dm,
 		cfg:               cfg,
-		jobChannel:        make(chan QueueJob, 1000),
+		jobQueue:          jq,
 		workerCount:       concurrentWorkers,
 		inventoryInterval: defaultInventoryInterval,
 		coalesceDelay:     defaultCoalesceDelay,
@@ -85,17 +74,6 @@ func (lm *LogMonitorWorker) UseCoordinator(c *recovery.Coordinator) {
 
 // Start loads the initial queue inventory, launches background workers, and begins log consumption.
 func (lm *LogMonitorWorker) Start(ctx context.Context) error {
-	// Search for existing backup files and publish any recoverable messages to a new queue before starting the log monitor.
-	locations, err := recovery.ScanBackupDirectories(lm.cfg.BackupBaseDir)
-	if err != nil {
-		log.Printf("FATAL: Failed to parse recoveries: %v", err)
-		return err
-	}
-	for _, loc := range locations {
-		log.Printf("[Recovery] Found recoverable queue %s in backup directory %s", loc.Name, loc.Path)
-		lm.jobChannel <- QueueJob{VHost: loc.VHost, Name: loc.Name}
-	}
-
 	if err := lm.syncInventory(ctx); err != nil {
 		return err
 	}
@@ -137,10 +115,10 @@ func (lm *LogMonitorWorker) syncInventory(ctx context.Context) error {
 		return err
 	}
 
-	var updatedList []TrackedQueue
+	var updatedList []common.QueueDef
 	for _, q := range allQueues {
 		if q.Type == "quorum" {
-			updatedList = append(updatedList, TrackedQueue{VHost: q.VHost, Name: q.Name})
+			updatedList = append(updatedList, common.QueueDef{VHost: q.VHost, Name: q.Name})
 		}
 	}
 
@@ -216,9 +194,9 @@ func (lm *LogMonitorWorker) processLogLine(logLine string) {
 	lm.registryLock.RLock()
 	defer lm.registryLock.RUnlock()
 
-	for _, tq := range lm.quorumList {
-		if strings.Contains(logLine, tq.Name) {
-			go lm.coalesceLogEvent(tq.VHost, tq.Name)
+	for _, qd := range lm.quorumList {
+		if strings.Contains(logLine, qd.Name) {
+			go lm.coalesceLogEvent(qd.VHost, qd.Name)
 			break
 		}
 	}
@@ -231,54 +209,54 @@ func (lm *LogMonitorWorker) coalesceLogEvent(vhost, name string) {
 		return // A check is already queued or in flight.
 	}
 	time.Sleep(lm.coalesceDelay)
-	lm.jobChannel <- QueueJob{VHost: vhost, Name: name}
+	lm.jobQueue.Add(vhost, name)
 }
 
 // healthCheckWorker consumes jobs from jobChannel, evaluates queue health, and triggers recovery.
 func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 	for {
-		select {
-		case <-ctx.Done():
+		// This function call blocks until a job is available or the context is canceled
+		qd, err := lm.jobQueue.GetNext(ctx)
+		if err != nil {
 			return
-		case job := <-lm.jobChannel:
-			key := job.VHost + "/" + job.Name
-			log.Printf("[Worker #%d] Evaluating health for: %s", id, key)
+		}
+		key := qd.VHost + "/" + qd.Name
+		log.Printf("[Worker #%d] Evaluating health for: %s", id, key)
 
-			health, err := lm.diagnostics.EvaluateQueueHealth(ctx, job.VHost, job.Name)
-			if err != nil {
-				log.Printf("[Worker #%d] Health evaluation failed for %s: %v", id, key, err)
-				lm.pendingChecks.Delete(key)
-				continue
-			}
+		health, err := lm.diagnostics.EvaluateQueueHealth(ctx, qd.VHost, qd.Name)
+		if err != nil {
+			log.Printf("[Worker #%d] Health evaluation failed for %s: %v", id, key, err)
+			lm.pendingChecks.Delete(key)
+			continue
+		}
 
-			switch health {
-			case broker.HealthUnrecoverable:
-				log.Printf("[Worker #%d] CRITICAL: %s is unrecoverable — initiating recovery pipeline", id, key)
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[Worker #%d] Recovery pipeline PANIC for %s: %v", id, key, r)
-						}
-					}()
-					runRecovery := lm.runRecovery
-					if runRecovery == nil {
-						runRecovery = recovery.Run
-					}
-					if err = runRecovery(ctx, lm.cfg, lm.diagnostics, job.VHost, job.Name); err != nil {
-						log.Printf("[Worker #%d] Recovery pipeline FAILED for %s: %v", id, key, err)
-					} else {
-						log.Printf("[Worker #%d] Recovery pipeline completed for %s", id, key)
+		switch health {
+		case broker.HealthUnrecoverable:
+			log.Printf("[Worker #%d] CRITICAL: %s is unrecoverable — initiating recovery pipeline", id, key)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Worker #%d] Recovery pipeline PANIC for %s: %v", id, key, r)
 					}
 				}()
-			case broker.HealthTransient:
-				log.Printf("[Worker #%d] Queue %s is transiently down — monitoring, no action taken", id, key)
-			case broker.HealthGreen:
-				log.Printf("[Worker #%d] Queue %s is healthy (%v) — no action required", id, key, health)
-			default:
-				log.Printf("[Worker #%d] Queue %s has unknown health status (%v) — no action taken", id, key, health)
-			}
-
-			lm.pendingChecks.Delete(key)
+				runRecovery := lm.runRecovery
+				if runRecovery == nil {
+					runRecovery = recovery.Run
+				}
+				if err = runRecovery(ctx, lm.cfg, lm.diagnostics, qd.VHost, qd.Name); err != nil {
+					log.Printf("[Worker #%d] Recovery pipeline FAILED for %s: %v", id, key, err)
+				} else {
+					log.Printf("[Worker #%d] Recovery pipeline completed for %s", id, key)
+				}
+			}()
+		case broker.HealthTransient:
+			log.Printf("[Worker #%d] Queue %s is transiently down — monitoring, no action taken", id, key)
+		case broker.HealthGreen:
+			log.Printf("[Worker #%d] Queue %s is healthy (%v) — no action required", id, key, health)
+		default:
+			log.Printf("[Worker #%d] Queue %s has unknown health status (%v) — no action taken", id, key, health)
 		}
+
+		lm.pendingChecks.Delete(key)
 	}
 }
