@@ -73,9 +73,9 @@ func TestRecoveryState_SaveLoadRoundTrip(t *testing.T) {
 
 func TestRecoveryState_SaveWritesDocumentedJSONFields(t *testing.T) {
 	base := t.TempDir()
-	require.NoError(t, newTestState("/", "q").Save(base))
+	require.NoError(t, newTestState("/", "q1").Save(base))
 
-	data, err := os.ReadFile(statePathFor(t, base, "q"))
+	data, err := os.ReadFile(statePathFor(t, base, "q1"))
 	require.NoError(t, err)
 	var raw map[string]any
 	require.NoError(t, json.Unmarshal(data, &raw))
