@@ -215,6 +215,7 @@ func (lm *LogMonitorWorker) coalesceLogEvent(vhost, name string) {
 // healthCheckWorker consumes jobs from jobChannel, evaluates queue health, and triggers recovery.
 func (lm *LogMonitorWorker) healthCheckWorker(ctx context.Context, id int) {
 	for {
+		// This function call blocks until a job is available or the context is canceled
 		qd, err := lm.jobQueue.GetNext(ctx)
 		if err != nil {
 			return

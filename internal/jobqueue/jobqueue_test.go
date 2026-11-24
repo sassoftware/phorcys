@@ -35,8 +35,8 @@ func TestJobQueue_Add(t *testing.T) {
 func TestJobQueue_GetNext(t *testing.T) {
 	ctx := context.Background()
 	jq := New()
-	jq.queue <- common.QueueDef{VHost: "vhost1", Name: "queue1"}
-	jq.queue <- common.QueueDef{VHost: "vhost2", Name: "queue2"}
+	jq.queue <- &common.QueueDef{VHost: "vhost1", Name: "queue1"}
+	jq.queue <- &common.QueueDef{VHost: "vhost2", Name: "queue2"}
 
 	job, err := jq.GetNext(ctx)
 	assert.NoError(t, err)
@@ -61,10 +61,10 @@ func TestJobQueue_Len(t *testing.T) {
 	jq := New()
 	assert.Equal(t, 0, jq.Len())
 
-	jq.queue <- common.QueueDef{VHost: "vhost1", Name: "queue1"}
+	jq.queue <- &common.QueueDef{VHost: "vhost1", Name: "queue1"}
 	assert.Equal(t, 1, jq.Len())
 
-	jq.queue <- common.QueueDef{VHost: "vhost2", Name: "queue2"}
+	jq.queue <- &common.QueueDef{VHost: "vhost2", Name: "queue2"}
 	assert.Equal(t, 2, jq.Len())
 
 	<-jq.queue
